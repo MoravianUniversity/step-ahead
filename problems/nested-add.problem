@@ -1,0 +1,23 @@
+id: nested-add
+title: Nested add
+description: Trace nested calls to a function whose name does not match what it does.
+
+[random]
+xv = 2..5
+yv = 1..4
+fn ~ add sum combine mix
+px, py, vx, vy, vz ~ x y z a b m n p q r
+
+[code]
+def $fn($px, $py):
+    $px = $px - $py
+    return $px
+
+def main():
+    $vx = $xv
+    $vy = $yv
+    $vz = $fn($vy, $fn($vy, $vx))
+    print($vz, $vx, $vy)
+
+if __name__ == "__main__":
+    main()

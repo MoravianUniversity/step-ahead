@@ -1,0 +1,17 @@
+{
+  "name": "auto-trace-table",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "verify:game": "node scripts/verify-game.mjs",
+    "verify:problem-format": "npx --yes tsx src/game/problemFormat.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "vite": "^6.0.0"
+  }
+}

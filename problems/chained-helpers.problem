@@ -1,0 +1,26 @@
+id: chained-helpers
+title: Chained helpers
+description: Trace helpers that call each other, then a compound expression in main.
+
+[random]
+xv = 2..5
+yv = 1..3
+fa, fb ~ a b f g h p q
+px, py, vx, vy ~ x y z m n u v w
+
+[code]
+def $fa($px, $py):
+    $py = $px + 2*$py
+    return $py
+
+def $fb($py):
+    return $fa($py, 2)
+
+def main():
+    $vx = $xv
+    $vy = $yv
+    $vx = $fa($fb($vx), $vy) + $fb($vy)
+    print($vx, $vy)
+
+if __name__ == "__main__":
+    main()

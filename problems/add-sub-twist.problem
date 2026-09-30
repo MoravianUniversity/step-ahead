@@ -1,0 +1,26 @@
+id: add-sub-twist
+title: Add and sub twist
+description: Trace two helpers with misleading names, then a call that nests them.
+
+[random]
+xv = 1..4
+yv = 2..5
+fadd ~ add sum plus
+fsub ~ sub diff minus
+px, py, vx, vy, vz ~ x y z a b m n p q r
+
+[code]
+def $fadd($px, $py):
+    $px = $px - $py
+    return $px
+
+def $fsub($py, $px):
+    return $py * $px
+
+def main():
+    $vx, $vy = $xv, $yv
+    $vz = $fadd(1, $fsub($vx, $vy))
+    print("x", $vz, "y", $vx, "z", $vy)
+
+if __name__ == "__main__":
+    main()

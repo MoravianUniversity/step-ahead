@@ -1,0 +1,23 @@
+id: area-swap
+title: Area swap
+description: Trace a call that swaps argument order — watch which values land in which parameters.
+
+[random]
+xv = 2..5
+yv = 2..5
+fn ~ area rect box region
+px, py, vx, vy, va ~ x y a b w h m n p q
+
+[code]
+def $fn($px, $py):
+    $px = $px * $py
+    return $py
+
+def main():
+    $vx = $xv
+    $vy = $yv
+    $va = $fn($vy, $vx)
+    print($vx, "x", $vy, "->", $va)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,56 @@
+id: function-mastery
+title: Function Mastery
+description: Trace parameter binding, returns, and nested calls — names and structure vary each run.
+
+[setup]
+# Intermediates use leading _ so only `code` becomes a $slot.
+_function_name = random.choice(["perim", "area", "circum", "volume", "surface"])
+_function2_name = random.choice(["foo", "bar", "baz"])
+_var1, _var2 = random.choice([["a", "b"], ["x", "y"]])
+_var3 = _function_name[0]
+_args = random.choice(
+    [f"{_var1}, {_var2}", f"{_var1}, {_var1}", f"{_var2}, {_var2}"]
+)
+_params = [f"{_var2}, {_var1}", f"{_var1}, {_var2}"]
+if _args in _params:
+    _params.remove(_args)
+_params = random.choice(_params)
+_sym = random.choice(["+", "*", "#", _var1, _var2])
+_op1, _op2 = random.sample(["+", "-", "*"], 2)
+_val1, _val2 = random.sample(range(1, 5), 2)
+
+if random.choice([0, 1]):
+    code = f"""def {_function_name}({_params}):
+    {_var2} = {_var2} {_op1} {_var1}
+    return {_var1} {_op2} {_var2}
+
+def main():
+    {_var1} = {_val1}
+    {_var2} = {_val2}
+    {_var3} = {_function_name}({_args})
+    print({_var1}, "{_sym}", {_var2}, "->", {_var3})
+
+if __name__ == "__main__":
+    main()
+"""
+else:
+    code = f"""def {_function2_name}({_var1}):
+    {_var1} = {_var1} + {_val1}
+    return {_var1}
+
+def {_function_name}({_params}):
+    {_var2} = {_var2} {_op1} {_var1}
+    return {_var1} {_op2} {_var2}
+
+def main():
+    {_var1} = {_val1}
+    {_var2} = {_val2}
+    {_var2} = {_function_name}({_function2_name}({_var2}), {_var1})
+    print("{_var1}", {_var1}, "{_var2}", {_var2})
+
+if __name__ == "__main__":
+    main()
+"""
+
+[code]
+$code
