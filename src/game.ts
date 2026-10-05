@@ -18,7 +18,6 @@ import {
   TUTORIAL_PROBLEM_ID,
   assistsLikeEasy,
   callParamScaffold,
-  describeNextAction,
   formatKindMismatch,
   formatNoAssignNeeded,
   formatWrongAssignTarget,
@@ -26,6 +25,7 @@ import {
   isTutorial,
   joinReturnValueSlots,
   loadDifficulty,
+  progressiveAnswerHints,
   saveDifficulty,
   splitReturnValueSlots,
   tipText,
@@ -33,6 +33,7 @@ import {
   tipsToRevealOnFeedback,
   type Difficulty,
   type PopoverKind,
+  type ProgressiveHintContext,
   type TipGuessContext,
   type TipId,
 } from "./game/difficulty";
@@ -63,70 +64,80 @@ app.innerHTML = `
     <header class="game-hero">
       <p class="game-brand">Step Ahead</p>
       <h1>What happens next?</h1>
-      <p class="game-lede predict-hint" id="predict-hint">
+      <p class="game-lede">
         Predict each step in the code.
       </p>
       <p class="sr-only" id="announce" aria-live="assertive"></p>
-      <p class="complete-message" id="complete-message" hidden>
-        Nice work — you predicted every step.
-      </p>
     </header>
 
     <section class="game-setup" id="setup" aria-label="Choose a problem">
-      <label class="problem-picker">
-        <span>Problem</span>
-        <select id="problem-select"></select>
-      </label>
-      <label class="difficulty-picker">
-        <span>Difficulty</span>
-        <select id="difficulty-select"></select>
-      </label>
-      <p class="problem-desc" id="problem-desc"></p>
-      <div class="setup-actions">
-        <button type="button" id="start" disabled>Start</button>
+      <p class="setup-tutorial">
+        First time?
         <a href="#tutorial" class="tutorial-link" id="tutorial-link">Play tutorial</a>
+      </p>
+      <div class="setup-controls">
+        <label class="problem-picker">
+          <span>Play:</span>
+          <select id="problem-select"></select>
+        </label>
+        <label class="difficulty-picker">
+          <select id="difficulty-select" aria-label="Difficulty"></select>
+        </label>
+        <button type="button" id="start" disabled>Start →</button>
       </div>
+      <p class="problem-desc" id="problem-desc"></p>
     </section>
 
     <section class="game-board" id="board" hidden aria-label="Prediction game">
       <div class="game-toolbar">
-        <p class="game-status" id="status" aria-live="polite">Loading Python…</p>
         <div class="game-progress" id="progress" aria-label="Progress">
           <div class="game-progress-meta">
-            <span id="progress-label">Transition 0 / 0</span>
-            <span id="progress-attempts">Attempts 0</span>
+            <span id="progress-label">Step 0 / 0</span>
+            <button type="button" class="progress-mistakes" id="progress-mistakes" hidden aria-expanded="false" aria-haspopup="true">
+              Mistakes 0
+            </button>
           </div>
           <div class="game-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" id="progress-bar">
             <div class="game-progress-fill" id="progress-fill"></div>
           </div>
         </div>
-        <p class="tutorial-badge toolbar-difficulty" id="tutorial-badge" hidden>Tutorial</p>
-        <label class="difficulty-picker toolbar-difficulty" id="toolbar-difficulty-wrap">
-          <span>Difficulty</span>
-          <select id="difficulty-select-board"></select>
-        </label>
-        <button type="button" id="restart" class="ghost">Change problem</button>
+        <div class="game-toolbar-actions">
+          <p class="tutorial-badge toolbar-difficulty" id="tutorial-badge" hidden>Tutorial</p>
+          <label class="difficulty-picker toolbar-difficulty" id="toolbar-difficulty-wrap">
+            <select id="difficulty-select-board" aria-label="Difficulty"></select>
+          </label>
+          <button type="button" id="restart" class="ghost">Home</button>
+        </div>
       </div>
 
       <div class="game-layout">
         <div class="game-code-pane">
-          <h2>Code</h2>
-          <pre class="game-code" id="code-view" aria-label="Python source"><code id="code-view-content"></code></pre>
-          <div class="game-io predict-output" id="io" tabindex="0" role="button" aria-label="Predict produce output">
+          <div class="game-section">
+            <p class="predict-hint" id="predict-hint" hidden></p>
+            <h2>Code</h2>
+            <pre class="game-code" id="code-view" aria-label="Python source"><code id="code-view-content"></code></pre>
+          </div>
+          <div class="game-section">
             <h2>Output</h2>
-            <pre id="stdout"></pre>
+            <div class="game-io predict-output" id="io" tabindex="0" role="button" aria-label="Predict produce output">
+              <pre id="stdout"></pre>
+            </div>
           </div>
         </div>
 
         <div class="game-side-pane">
-          <div class="game-panel">
-            <h2>Call stack</h2>
-            <ul class="stack-list" id="stack-list"></ul>
-          </div>
-          <div class="game-panel tables-panel">
+          <div class="game-section tables-panel">
             <h2>Trace tables</h2>
-            <div class="tables-scroll">
-              <div id="tables" class="tables"></div>
+            <div class="game-panel">
+              <div class="tables-scroll">
+                <div id="tables" class="tables"></div>
+              </div>
+            </div>
+          </div>
+          <div class="game-section">
+            <h2>Call stack</h2>
+            <div class="game-panel">
+              <ul class="stack-list" id="stack-list"></ul>
             </div>
           </div>
         </div>
@@ -150,9 +161,9 @@ const tutorialLink = document.querySelector<HTMLAnchorElement>("#tutorial-link")
 const problemDesc = document.querySelector<HTMLElement>("#problem-desc")!;
 const startBtn = document.querySelector<HTMLButtonElement>("#start")!;
 const restartBtn = document.querySelector<HTMLButtonElement>("#restart")!;
-const statusEl = document.querySelector<HTMLElement>("#status")!;
+const progressEl = document.querySelector<HTMLElement>("#progress")!;
 const progressLabelEl = document.querySelector<HTMLElement>("#progress-label")!;
-const progressAttemptsEl = document.querySelector<HTMLElement>("#progress-attempts")!;
+const progressMistakesEl = document.querySelector<HTMLButtonElement>("#progress-mistakes")!;
 const progressBarEl = document.querySelector<HTMLElement>("#progress-bar")!;
 const progressFillEl = document.querySelector<HTMLElement>("#progress-fill")!;
 const codeView = document.querySelector<HTMLElement>("#code-view")!;
@@ -162,7 +173,6 @@ const tablesEl = document.querySelector<HTMLDivElement>("#tables")!;
 const ioEl = document.querySelector<HTMLElement>("#io")!;
 const stdoutEl = document.querySelector<HTMLPreElement>("#stdout")!;
 const predictHint = document.querySelector<HTMLElement>("#predict-hint")!;
-const completeMessage = document.querySelector<HTMLElement>("#complete-message")!;
 const announceEl = document.querySelector<HTMLElement>("#announce")!;
 
 const callTooltip = document.createElement("div");
@@ -170,6 +180,14 @@ callTooltip.className = "game-call-tooltip";
 callTooltip.hidden = true;
 callTooltip.setAttribute("role", "tooltip");
 document.body.appendChild(callTooltip);
+
+const mistakesPanel = document.createElement("div");
+mistakesPanel.className = "mistakes-panel";
+mistakesPanel.id = "mistakes-panel";
+mistakesPanel.hidden = true;
+mistakesPanel.setAttribute("role", "dialog");
+mistakesPanel.setAttribute("aria-label", "Mistakes");
+document.body.appendChild(mistakesPanel);
 
 const popover = document.createElement("div");
 popover.className = "predict-popover";
@@ -212,11 +230,15 @@ let timeline: GameTimelineEntry[] = [];
 let stdout = "";
 /** Revealed timeline index; player predicts the transition to index+1. */
 let stepIndex = 0;
-let attempts = 0;
+type MistakeRecord = { line: number; message: string };
+let mistakes: MistakeRecord[] = [];
+let mistakesPanelPinned = false;
+/** Mistakes since the last successful step — drives progressive hints. */
+let stepMistakeCount = 0;
 let pending: PendingPrediction | null = null;
 let stagedChanges: Array<{ name: string; value: string }> = [];
 let lineErrorTimer: number | null = null;
-let statusToneTimer: number | null = null;
+let progressToneTimer: number | null = null;
 let successFxTimer: number | null = null;
 let celebrationTimer: number | null = null;
 /** Guards win celebration so re-renders do not retrigger confetti. */
@@ -266,33 +288,23 @@ function post(msg: MainToWorker): void {
   worker.postMessage(msg);
 }
 
-type StatusTone = "neutral" | "success" | "error" | "complete";
-
-function setStatus(text: string, tone: StatusTone = "neutral"): void {
-  statusEl.textContent = text;
-  statusEl.classList.remove("is-success", "is-error", "is-complete");
-  if (statusToneTimer != null) {
-    window.clearTimeout(statusToneTimer);
-    statusToneTimer = null;
-  }
-  if (tone === "neutral") return;
-  statusEl.classList.add(
-    tone === "success"
-      ? "is-success"
-      : tone === "error"
-        ? "is-error"
-        : "is-complete",
-  );
-  if (tone === "success" || tone === "error") {
-    statusToneTimer = window.setTimeout(() => {
-      statusEl.classList.remove("is-success", "is-error");
-      statusToneTimer = null;
-    }, tone === "success" ? SUCCESS_FX_MS : ERROR_FX_MS);
-  }
-}
-
 function announce(text: string): void {
   announceEl.textContent = text;
+}
+
+function pulseProgressTone(tone: "success" | "error"): void {
+  progressEl.classList.remove("is-success", "is-error");
+  if (progressToneTimer != null) {
+    window.clearTimeout(progressToneTimer);
+    progressToneTimer = null;
+  }
+  // Force reflow so repeated answers retrigger the same glow.
+  void progressEl.offsetWidth;
+  progressEl.classList.add(tone === "success" ? "is-success" : "is-error");
+  progressToneTimer = window.setTimeout(() => {
+    progressEl.classList.remove("is-success", "is-error");
+    progressToneTimer = null;
+  }, tone === "success" ? SUCCESS_FX_MS : ERROR_FX_MS);
 }
 
 function clearWinState(): void {
@@ -306,7 +318,6 @@ function clearWinState(): void {
   boardEl.classList.remove("is-celebrating");
   boardEl.removeAttribute("aria-busy");
   boardEl.inert = false;
-  completeMessage.classList.remove("fx-complete-banner");
 }
 
 function fireWinConfetti(): void {
@@ -338,9 +349,6 @@ function celebrateWin(): void {
   boardEl.classList.add("is-celebrating");
   boardEl.setAttribute("aria-busy", "true");
   boardEl.inert = true;
-  completeMessage.classList.remove("fx-complete-banner");
-  void completeMessage.offsetWidth;
-  completeMessage.classList.add("fx-complete-banner");
   fireWinConfetti();
   if (celebrationTimer != null) window.clearTimeout(celebrationTimer);
   celebrationTimer = window.setTimeout(() => {
@@ -463,6 +471,44 @@ function tutorialTemplate(): ProblemTemplate | undefined {
   return GAME_PROBLEMS.find((item) => item.id === TUTORIAL_PROBLEM_ID);
 }
 
+function sizeSelectToLongestOption(select: HTMLSelectElement): void {
+  const styles = getComputedStyle(select);
+  const probe = document.createElement("span");
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.cssText = [
+    "position:absolute",
+    "visibility:hidden",
+    "pointer-events:none",
+    "white-space:nowrap",
+    `font:${styles.font}`,
+    `letter-spacing:${styles.letterSpacing}`,
+  ].join(";");
+  document.body.appendChild(probe);
+
+  let textWidth = 0;
+  for (const option of Array.from(select.options)) {
+    probe.textContent = option.textContent ?? "";
+    textWidth = Math.max(textWidth, probe.offsetWidth);
+  }
+  probe.remove();
+
+  const padLeft = Number.parseFloat(styles.paddingLeft) || 0;
+  const padRight = Number.parseFloat(styles.paddingRight) || 0;
+  const borderLeft = Number.parseFloat(styles.borderLeftWidth) || 0;
+  const borderRight = Number.parseFloat(styles.borderRightWidth) || 0;
+  // border-box width must leave room past the label: native selects often
+  // paint selected text into the padding where the custom chevron sits.
+  const labelClearance = 10;
+  select.style.width = `${Math.ceil(
+    textWidth +
+      labelClearance +
+      padLeft +
+      padRight +
+      borderLeft +
+      borderRight,
+  )}px`;
+}
+
 function syncProblemPicker(): void {
   const catalog = catalogProblems();
   problemSelect.replaceChildren();
@@ -478,6 +524,7 @@ function syncProblemPicker(): void {
     problemSelect.value = selectedTemplate.id;
     problemDesc.textContent = selectedTemplate.description;
   }
+  sizeSelectToLongestOption(problemSelect);
 }
 
 function fillDifficultySelect(select: HTMLSelectElement): void {
@@ -489,6 +536,7 @@ function fillDifficultySelect(select: HTMLSelectElement): void {
     select.appendChild(option);
   }
   select.value = selectableDifficulty;
+  sizeSelectToLongestOption(select);
 }
 
 function syncDifficultySelects(): void {
@@ -515,6 +563,7 @@ function setDifficulty(next: Difficulty): void {
   if (
     pending?.kind === "call" &&
     (assistsLikeEasy(difficulty) || difficulty === "medium") &&
+    isUpcomingCallTo(pending.functionName) &&
     expectedCallParamNames(pending.functionName).length === 0
   ) {
     const keep = pending;
@@ -545,24 +594,51 @@ function exitTutorialDifficulty(): void {
   syncTutorialChrome();
 }
 
+/**
+ * Next action the player should predict. Skips empty line-advances that only
+ * exist so a following call/return/output can be entered as a combo.
+ */
 function nextExpectedKind(): PredictionKind | null {
   const current = currentEntry();
-  const next = timeline[stepIndex + 1];
-  if (!current || !next) return null;
-  return classifyTransition(current, next);
+  let index = stepIndex + 1;
+  let from = current;
+  if (!from) return null;
+  const byId = tablesById();
+
+  while (index < timeline.length) {
+    const to = timeline[index];
+    if (!to || !from) return null;
+    const kind = classifyTransition(from, to);
+    if (kind === "call" || kind === "return" || kind === "output") return kind;
+    if (kind === "advance") {
+      const expected = expectedPrediction(from, to, byId);
+      if (
+        expected.kind === "advance" &&
+        Object.keys(expected.changes).length > 0
+      ) {
+        return "advance";
+      }
+      // Empty advance — keep looking for the meaningful next action.
+      from = to;
+      index += 1;
+      continue;
+    }
+    return kind;
+  }
+  return null;
 }
 
-function expectedCallParamNames(functionName: string): string[] {
+/** True when the next step (or advance-then-call) is a call to this function. */
+function isUpcomingCallTo(functionName: string): boolean {
   const current = currentEntry();
   const next = timeline[stepIndex + 1];
   const after = timeline[stepIndex + 2];
-  const fallback = functionDefInfo(functionName)?.parameters ?? [];
-  if (!current || !next) return fallback;
+  if (!current || !next) return false;
   const byId = tablesById();
   const nextKind = classifyTransition(current, next);
   if (nextKind === "call") {
     const expected = expectedPrediction(current, next, byId);
-    if (expected.kind === "call") return Object.keys(expected.params);
+    return expected.kind === "call" && expected.functionName === functionName;
   }
   if (
     nextKind === "advance" &&
@@ -570,9 +646,37 @@ function expectedCallParamNames(functionName: string): string[] {
     classifyTransition(next, after) === "call"
   ) {
     const expected = expectedPrediction(next, after, byId);
-    if (expected.kind === "call") return Object.keys(expected.params);
+    return expected.kind === "call" && expected.functionName === functionName;
   }
-  return fallback;
+  return false;
+}
+
+function expectedCallParamNames(functionName: string): string[] {
+  const current = currentEntry();
+  const next = timeline[stepIndex + 1];
+  const after = timeline[stepIndex + 2];
+  if (!current || !next) return [];
+  const byId = tablesById();
+  const nextKind = classifyTransition(current, next);
+  if (nextKind === "call") {
+    const expected = expectedPrediction(current, next, byId);
+    if (expected.kind === "call" && expected.functionName === functionName) {
+      return Object.keys(expected.params);
+    }
+    return [];
+  }
+  if (
+    nextKind === "advance" &&
+    after &&
+    classifyTransition(next, after) === "call"
+  ) {
+    const expected = expectedPrediction(next, after, byId);
+    if (expected.kind === "call" && expected.functionName === functionName) {
+      return Object.keys(expected.params);
+    }
+    return [];
+  }
+  return [];
 }
 
 function expectedReturnValueRepr(): string {
@@ -647,8 +751,13 @@ function renderPopoverTips(): void {
   if (!list || !pending) return;
   const kind = popoverKindOf(pending.kind);
   const tips = tipsForPopover(kind, difficulty, revealedTips);
+  const progressive = progressiveAnswerHints(
+    difficulty,
+    stepMistakeCount,
+    progressiveHintContextForPending() ?? { kind },
+  );
   list.replaceChildren();
-  if (tips.length === 0) {
+  if (tips.length === 0 && progressive.length === 0) {
     list.setAttribute("hidden", "");
     return;
   }
@@ -659,6 +768,75 @@ function renderPopoverTips(): void {
     item.textContent = tipText(id);
     list.appendChild(item);
   }
+  for (const text of progressive) {
+    const item = document.createElement("p");
+    item.className = "predict-tip predict-tip-progressive";
+    item.textContent = text;
+    list.appendChild(item);
+  }
+}
+
+function progressiveHintContextForPending(): ProgressiveHintContext | null {
+  if (!pending) return null;
+  const current = currentEntry();
+  const step = timeline[stepIndex + 1];
+  const after = timeline[stepIndex + 2];
+  if (!current || !step) return { kind: popoverKindOf(pending.kind) };
+  const byId = tablesById();
+
+  if (pending.kind === "assign") {
+    if (classifyTransition(current, step) !== "advance") {
+      return { kind: "assign", assignName: pending.name };
+    }
+    const expected = expectedPrediction(current, step, byId);
+    if (expected.kind !== "advance") {
+      return { kind: "assign", assignName: pending.name };
+    }
+    const value = expected.changes[pending.name];
+    return {
+      kind: "assign",
+      assignName: pending.name,
+      assignValue: value,
+    };
+  }
+
+  if (pending.kind === "call") {
+    const context: ProgressiveHintContext = {
+      kind: "call",
+      functionName: pending.functionName,
+    };
+    if (!isUpcomingCallTo(pending.functionName)) return context;
+    const nextKind = classifyTransition(current, step);
+    let expected =
+      nextKind === "call"
+        ? expectedPrediction(current, step, byId)
+        : null;
+    if (
+      !expected &&
+      nextKind === "advance" &&
+      after &&
+      classifyTransition(step, after) === "call"
+    ) {
+      expected = expectedPrediction(step, after, byId);
+    }
+    if (expected?.kind === "call") {
+      context.callParams = expected.params;
+      context.functionName = expected.functionName;
+    }
+    return context;
+  }
+
+  if (pending.kind === "return") {
+    return {
+      kind: "return",
+      returnValue: expectedReturnValueRepr(),
+    };
+  }
+
+  return {
+    kind: "output",
+    output: expectedOutputText(),
+  };
 }
 
 function revealTipsFromFeedback(
@@ -1433,8 +1611,7 @@ function renderTraceTable(
                 replayAnimationClass(input, "fx-error-shake");
               }
               announce(check.message);
-              setStatus("Incorrect — try again", "error");
-              recordFailedAttempt();
+              recordFailedAttempt(check.message);
               // Restore the previously staged correct value.
               const previous = stagedChanges.find((entry) => entry.name === name);
               input.value = previous?.value ?? "";
@@ -1537,17 +1714,27 @@ function renderProgress(): void {
   const total = Math.max(0, timeline.length - 1);
   const done = Math.min(stepIndex, total);
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-  progressLabelEl.textContent = `Transition ${done} / ${total}`;
-  progressAttemptsEl.textContent = `Attempts ${attempts}`;
+  const mistakeCount = mistakes.length;
+  progressLabelEl.textContent = `Step ${done} / ${total}`;
+  progressMistakesEl.hidden = mistakeCount === 0;
+  progressMistakesEl.textContent =
+    mistakeCount === 1 ? "1 mistake" : `${mistakeCount} mistakes`;
   progressFillEl.style.width = `${pct}%`;
   boardEl.dataset.progress = String(pct);
   progressBarEl.setAttribute("aria-valuemin", "0");
   progressBarEl.setAttribute("aria-valuemax", String(total));
   progressBarEl.setAttribute("aria-valuenow", String(done));
-  progressBarEl.setAttribute(
-    "aria-valuetext",
-    `Transition ${done} of ${total}, ${attempts} attempts`,
-  );
+  const valueText =
+    mistakeCount === 0
+      ? `Step ${done} of ${total}`
+      : `Step ${done} of ${total}, ${mistakeCount} ${mistakeCount === 1 ? "mistake" : "mistakes"}`;
+  progressBarEl.setAttribute("aria-valuetext", valueText);
+  if (mistakeCount === 0) {
+    hideMistakesPanel(true);
+  } else if (mistakesPanelPinned || !mistakesPanel.hidden) {
+    renderMistakesPanelContents();
+    positionMistakesPanel();
+  }
 }
 
 function valueInput(
@@ -1618,7 +1805,6 @@ function showPopoverFeedback(
     const detail = items[0]?.message;
     if (detail) {
       announce(detail);
-      if (hasError) setStatus("Incorrect — try again", "error");
     }
     return;
   }
@@ -1636,7 +1822,6 @@ function showPopoverFeedback(
     el.classList.add(item.level === "warning" ? "field-warning" : "field-error");
   }
   if (hasError) {
-    setStatus("Incorrect — try again", "error");
     shakeErrorFields();
   }
   if (pending) {
@@ -1675,7 +1860,6 @@ function flashLineError(line: number, message: string): void {
     }, ERROR_FX_MS);
   }
   announce(message);
-  setStatus("Incorrect — try again", "error");
 }
 
 function clearStagedChanges(): void {
@@ -2192,11 +2376,11 @@ async function evaluateGuess(
 }
 
 async function applySuccessfulGuesses(steps: number, message: string): Promise<void> {
-  attempts += steps;
   hidePopover();
   clearStagedChanges();
   stepIndex += steps;
-  setStatus("Correct", "success");
+  stepMistakeCount = 0;
+  pulseProgressTone("success");
   announce(message);
   renderAll();
   if (!gameFinished()) applySuccessFlourish();
@@ -2293,7 +2477,9 @@ async function submitCallPrediction(guess: PredictionGuess): Promise<void> {
       pending.siteLine !== current.line
     ) {
       // Call clicked on a line that isn't the upcoming advance target.
-      recordFailedAttempt();
+      recordFailedAttempt(
+        "Advance to the call site first, or click the call on the next line",
+      );
       showPopoverFeedback([
         {
           field: "params",
@@ -2301,7 +2487,6 @@ async function submitCallPrediction(guess: PredictionGuess): Promise<void> {
           level: "error",
         },
       ]);
-      setStatus("Incorrect — try again", "error");
       return;
     }
     const advanceResult = await evaluateGuess(
@@ -2313,7 +2498,7 @@ async function submitCallPrediction(guess: PredictionGuess): Promise<void> {
       ),
     );
     if (!advanceResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(advanceResult.feedback);
       showPopoverFeedback(
         advanceResult.feedback,
         tipContextFromGuess(
@@ -2326,37 +2511,37 @@ async function submitCallPrediction(guess: PredictionGuess): Promise<void> {
         ),
       );
       announce("Not quite — check values before the call.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
     const callExpected = expectedPrediction(next, after, byId);
     const callResult = await evaluateGuess(callExpected, guess);
     if (!callResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(callResult.feedback);
       showPopoverFeedback(
         callResult.feedback,
         tipContextFromGuess(guess, callExpected),
       );
       announce("Not quite — check the call.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
     await applySuccessfulGuesses(2, "Correct. Advanced and called.");
     return;
   }
 
-  recordFailedAttempt();
-  const expectedKind = nextExpectedKind();
-  showPopoverFeedback([
-    {
-      field: "params",
-      message: expectedKind
-        ? formatKindMismatch(expectedKind, difficulty)
-        : "Call is not the next step from here",
-      level: "error",
-    },
-  ]);
-  setStatus("Incorrect — try again", "error");
+  {
+    const expectedKind = nextExpectedKind();
+    const message = expectedKind
+      ? formatKindMismatch(expectedKind, difficulty)
+      : "Call is not the next step from here";
+    recordFailedAttempt(message);
+    showPopoverFeedback([
+      {
+        field: "params",
+        message,
+        level: "error",
+      },
+    ]);
+  }
 }
 
 async function submitOutputPrediction(guess: PredictionGuess): Promise<void> {
@@ -2388,44 +2573,113 @@ async function submitOutputPrediction(guess: PredictionGuess): Promise<void> {
       ),
     );
     if (!advanceResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(advanceResult.feedback);
       showPopoverFeedback(advanceResult.feedback);
       announce("Not quite — check values before the output.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
     const outputExpected = expectedPrediction(next, after, byId);
     const outputResult = await evaluateGuess(outputExpected, guess);
     if (!outputResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(outputResult.feedback);
       showPopoverFeedback(outputResult.feedback);
       announce("Not quite — check the output.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
     await applySuccessfulGuesses(2, "Correct. Advanced and produced output.");
     return;
   }
 
-  recordFailedAttempt();
   {
     const expectedKind = nextExpectedKind();
+    const message = expectedKind
+      ? formatKindMismatch(expectedKind, difficulty)
+      : "Output is not the next step from here";
+    recordFailedAttempt(message);
     showPopoverFeedback([
       {
         field: "output",
-        message: expectedKind
-          ? formatKindMismatch(expectedKind, difficulty)
-          : "Output is not the next step from here",
+        message,
         level: "error",
       },
     ]);
   }
-  setStatus("Incorrect — try again", "error");
 }
 
-function recordFailedAttempt(): void {
-  attempts += 1;
+function feedbackSummary(feedback: FieldFeedback[]): string {
+  const preferred = feedback.find((item) => item.level === "error") ?? feedback[0];
+  return preferred?.message ?? "Incorrect prediction";
+}
+
+function clearMistakes(): void {
+  mistakes = [];
+  mistakesPanelPinned = false;
+  stepMistakeCount = 0;
+  hideMistakesPanel(true);
+}
+
+function renderMistakesPanelContents(): void {
+  mistakesPanel.replaceChildren();
+  const title = document.createElement("p");
+  title.className = "mistakes-panel-title";
+  title.textContent = mistakes.length === 1 ? "1 mistake" : `${mistakes.length} mistakes`;
+  const list = document.createElement("ol");
+  list.className = "mistakes-panel-list";
+  for (const entry of mistakes) {
+    const item = document.createElement("li");
+    const line = document.createElement("span");
+    line.className = "mistakes-panel-step";
+    line.textContent = `Line ${entry.line}`;
+    const message = document.createElement("span");
+    message.className = "mistakes-panel-message";
+    message.textContent = entry.message;
+    item.append(line, message);
+    list.appendChild(item);
+  }
+  mistakesPanel.append(title, list);
+}
+
+function positionMistakesPanel(): void {
+  const anchorRect = progressMistakesEl.getBoundingClientRect();
+  const panelRect = mistakesPanel.getBoundingClientRect();
+  const gap = 6;
+  const maxLeft = Math.max(gap, window.innerWidth - panelRect.width - gap);
+  const left = Math.min(Math.max(gap, anchorRect.right - panelRect.width), maxLeft);
+  let top = anchorRect.bottom + gap;
+  if (top + panelRect.height > window.innerHeight - gap) {
+    top = Math.max(gap, anchorRect.top - panelRect.height - gap);
+  }
+  mistakesPanel.style.left = `${left}px`;
+  mistakesPanel.style.top = `${top}px`;
+}
+
+function showMistakesPanel(pinned = false): void {
+  if (mistakes.length === 0) return;
+  if (pinned) mistakesPanelPinned = true;
+  renderMistakesPanelContents();
+  mistakesPanel.hidden = false;
+  positionMistakesPanel();
+  // Reposition after layout with real size.
+  positionMistakesPanel();
+  progressMistakesEl.setAttribute("aria-expanded", "true");
+}
+
+function hideMistakesPanel(force = false): void {
+  if (mistakesPanelPinned && !force) return;
+  mistakesPanelPinned = false;
+  mistakesPanel.hidden = true;
+  progressMistakesEl.setAttribute("aria-expanded", "false");
+}
+
+function recordFailedAttempt(detail: string | FieldFeedback[] = "Incorrect prediction"): void {
+  const message =
+    typeof detail === "string" ? detail.trim() || "Incorrect prediction" : feedbackSummary(detail);
+  const line = currentEntry()?.line ?? 1;
+  mistakes.push({ line, message });
+  stepMistakeCount += 1;
+  pulseProgressTone("error");
   renderProgress();
+  if (pending) renderPopoverTips();
 }
 
 async function gradeAndApply(
@@ -2440,7 +2694,7 @@ async function gradeAndApply(
   const result = await evaluateGuess(expected, guess);
 
   if (!result.ok) {
-    recordFailedAttempt();
+    recordFailedAttempt(result.feedback);
     if (pending) {
       showPopoverFeedback(result.feedback, tipContextFromGuess(guess, expected));
     } else if (guess.kind === "advance") {
@@ -2450,7 +2704,6 @@ async function gradeAndApply(
       flashLineError(guess.line, detail);
     }
     announce("Not quite — check the highlighted answers and try again.");
-    setStatus("Incorrect — try again", "error");
     return false;
   }
 
@@ -2498,10 +2751,9 @@ async function submitReturnPrediction(
     const forExpected = expectedPrediction(current, next, byId);
     const forResult = await evaluateGuess(forExpected, toFor);
     if (!forResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(forResult.feedback);
       showPopoverFeedback(forResult.feedback);
       announce("Not quite — check the loop exit / return prediction.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2513,10 +2765,9 @@ async function submitReturnPrediction(
     const returnLineExpected = expectedPrediction(next, after, byId);
     const returnLineResult = await evaluateGuess(returnLineExpected, toReturn);
     if (!returnLineResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(returnLineResult.feedback);
       showPopoverFeedback(returnLineResult.feedback);
       announce("Not quite — check the loop exit / return prediction.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2531,10 +2782,9 @@ async function submitReturnPrediction(
     };
     const returnResult = await evaluateGuess(returnExpected, returnGuess);
     if (!returnResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(returnResult.feedback);
       showPopoverFeedback(returnResult.feedback);
       announce("Not quite — check the return value.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2556,10 +2806,9 @@ async function submitReturnPrediction(
     const advanceExpected = expectedPrediction(current, next, byId);
     const advanceResult = await evaluateGuess(advanceExpected, advanceGuess);
     if (!advanceResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(advanceResult.feedback);
       showPopoverFeedback(advanceResult.feedback);
       announce("Not quite — check the advance/return prediction.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2574,10 +2823,9 @@ async function submitReturnPrediction(
     };
     const returnResult = await evaluateGuess(returnExpected, returnGuess);
     if (!returnResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(returnResult.feedback);
       showPopoverFeedback(returnResult.feedback);
       announce("Not quite — check the return value.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2585,21 +2833,21 @@ async function submitReturnPrediction(
     return;
   }
 
-  recordFailedAttempt();
   {
     const expectedKind = nextExpectedKind();
+    const message = expectedKind
+      ? formatKindMismatch(expectedKind, difficulty)
+      : "Return is not the next step from here";
+    recordFailedAttempt(message);
     showPopoverFeedback([
       {
         field: "returnValue",
-        message: expectedKind
-          ? formatKindMismatch(expectedKind, difficulty)
-          : "Return is not the next step from here",
+        message,
         level: "error",
       },
     ]);
   }
   announce("Not quite — return is not available for this step.");
-  setStatus("Incorrect — try again", "error");
 }
 
 async function submitPending(): Promise<void> {
@@ -2644,7 +2892,7 @@ async function submitPending(): Promise<void> {
     const assignLine = pending.line;
     const valueCheck = await checkStagedAssignValue(name, trimmed);
     if (!valueCheck.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(valueCheck.message);
       const current = currentEntry();
       const next = timeline[stepIndex + 1];
       const expected =
@@ -2668,7 +2916,6 @@ async function submitPending(): Promise<void> {
         },
       );
       announce("Not quite — check the value and try again.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2684,7 +2931,6 @@ async function submitPending(): Promise<void> {
     announce(
       `Staged ${name} = ${trimmed}. Click the next line to advance, or set another variable.`,
     );
-    setStatus("Variable staged — click a line to advance");
     return;
   }
 
@@ -2795,13 +3041,30 @@ async function submitZeroArgCall(next: Extract<PendingPrediction, { kind: "call"
 
 function openPrediction(next: PendingPrediction): void {
   if (!canPredict()) return;
-  if (
-    next.kind === "call" &&
-    (assistsLikeEasy(difficulty) || difficulty === "medium") &&
-    expectedCallParamNames(next.functionName).length === 0
-  ) {
-    void submitZeroArgCall(next);
-    return;
+  if (next.kind === "call") {
+    const assisted =
+      assistsLikeEasy(difficulty) || difficulty === "medium";
+    if (assisted && !isUpcomingCallTo(next.functionName)) {
+      buildPopover(next);
+      const expectedKind = nextExpectedKind();
+      const message = expectedKind
+        ? formatKindMismatch(expectedKind, difficulty)
+        : "Call is not the next step from here";
+      recordFailedAttempt(message);
+      showPopoverFeedback([
+        {
+          field: "params",
+          message,
+          level: "error",
+        },
+      ]);
+      announce(message);
+      return;
+    }
+    if (assisted && expectedCallParamNames(next.functionName).length === 0) {
+      void submitZeroArgCall(next);
+      return;
+    }
   }
   buildPopover(next);
 }
@@ -2830,13 +3093,12 @@ async function submitAdvanceToLine(line: number): Promise<void> {
     const forExpected = expectedPrediction(current, next, byId);
     const forResult = await evaluateGuess(forExpected, toFor);
     if (!forResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(forResult.feedback);
       const detail =
         forResult.feedback[0]?.message ??
         "Not quite — that is not the next step.";
       flashLineError(line, detail);
       announce("Not quite — check the loop exit prediction.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2848,13 +3110,12 @@ async function submitAdvanceToLine(line: number): Promise<void> {
     const afterExpected = expectedPrediction(next, after, byId);
     const afterResult = await evaluateGuess(afterExpected, toAfter);
     if (!afterResult.ok) {
-      recordFailedAttempt();
+      recordFailedAttempt(afterResult.feedback);
       const detail =
         afterResult.feedback[0]?.message ??
         "Not quite — that is not the next step.";
       flashLineError(line, detail);
       announce("Not quite — check the loop exit prediction.");
-      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2878,21 +3139,35 @@ function gamePageEl(): HTMLElement | null {
 
 function clearTutorialTargets(): void {
   codeViewContent
-    .querySelectorAll(".tutorial-target, .tutorial-target-line")
+    .querySelectorAll(
+      ".tutorial-target, .tutorial-target-line, .tutorial-target-first",
+    )
     .forEach((el) => {
-      el.classList.remove("tutorial-target", "tutorial-target-line");
+      el.classList.remove(
+        "tutorial-target",
+        "tutorial-target-line",
+        "tutorial-target-first",
+      );
     });
-  ioEl.classList.remove("tutorial-target");
+  ioEl.classList.remove("tutorial-target", "tutorial-target-first");
   gamePageEl()?.classList.remove("tutorial-mode");
 }
 
-function markTutorialTargets(nodes: Iterable<Element | null | undefined>): void {
+function markTutorialTargets(
+  nodes: Iterable<Element | null | undefined>,
+  options?: { firstStep?: boolean },
+): void {
   for (const node of nodes) {
-    if (node instanceof HTMLElement) node.classList.add("tutorial-target");
+    if (!(node instanceof HTMLElement)) continue;
+    node.classList.add("tutorial-target");
+    if (options?.firstStep) node.classList.add("tutorial-target-first");
   }
 }
 
-function highlightTutorialCall(functionName: string): void {
+function highlightTutorialCall(
+  functionName: string,
+  options?: { firstStep?: boolean },
+): void {
   const calls = [
     ...codeViewContent.querySelectorAll<HTMLElement>("[data-predict='call']"),
   ].filter((el) => el.dataset.functionName === functionName);
@@ -2902,7 +3177,102 @@ function highlightTutorialCall(functionName: string): void {
     const text = sourceLines[line - 1] ?? "";
     return !/^\s*(?:async\s+)?def\s/.test(text);
   });
-  markTutorialTargets(nonDef.length > 0 ? nonDef : calls);
+  const targets = nonDef.length > 0 ? nonDef : calls;
+  if (options?.firstStep) {
+    for (const el of targets) {
+      wrapTutorialCallWithParens(el);
+    }
+    return;
+  }
+  markTutorialTargets(targets, options);
+}
+
+/** Wrap `name` + following `()` so the first-step pulse covers `main()`. */
+function wrapTutorialCallWithParens(el: HTMLElement): void {
+  const parent = el.parentNode;
+  if (!parent) {
+    markTutorialTargets([el], { firstStep: true });
+    return;
+  }
+  const wrap = document.createElement("span");
+  wrap.className = "tutorial-target tutorial-target-first";
+  wrap.dataset.predict = "call";
+  wrap.dataset.functionName = el.dataset.functionName ?? "";
+  parent.insertBefore(wrap, el);
+  wrap.appendChild(el);
+
+  const next = wrap.nextSibling;
+  if (next && next.nodeType === Node.TEXT_NODE) {
+    const text = next.textContent ?? "";
+    const match = text.match(/^(\s*\(\s*\))/);
+    if (match) {
+      wrap.append(match[1]!);
+      next.textContent = text.slice(match[1]!.length);
+    }
+  }
+}
+
+/**
+ * If the next player action is a call (directly, or via an empty advance then
+ * call), return that expected call prediction.
+ */
+function upcomingTutorialCall(): Extract<
+  ReturnType<typeof expectedPrediction>,
+  { kind: "call" }
+> | null {
+  const current = currentEntry();
+  const next = timeline[stepIndex + 1];
+  const after = timeline[stepIndex + 2];
+  if (!current || !next) return null;
+  const byId = tablesById();
+  const kind = classifyTransition(current, next);
+  if (kind === "call") {
+    const expected = expectedPrediction(current, next, byId);
+    return expected.kind === "call" ? expected : null;
+  }
+  if (
+    kind === "advance" &&
+    after &&
+    classifyTransition(next, after) === "call"
+  ) {
+    const advanceExpected = expectedPrediction(current, next, byId);
+    if (
+      advanceExpected.kind === "advance" &&
+      Object.keys(advanceExpected.changes).length === 0
+    ) {
+      const callExpected = expectedPrediction(next, after, byId);
+      if (callExpected.kind === "call") return callExpected;
+    }
+  }
+  return null;
+}
+
+function formatTutorialCallHint(
+  expected: Extract<ReturnType<typeof expectedPrediction>, { kind: "call" }>,
+): string {
+  const paramEntries = Object.entries(expected.params);
+  if (paramEntries.length === 0) {
+    return `<strong class="tutorial-next-label">Next:</strong> Click <code>${expected.functionName}()</code> to call it.`;
+  }
+  return `<strong class="tutorial-next-label">Next:</strong> Click <code>${expected.functionName}()</code> and enter ${paramEntries
+    .map(([name, value]) => `<code>${name}=${value}</code>`)
+    .join(", ")}.`;
+}
+
+function formatTutorialAssignHint(
+  changes: Record<string, string>,
+  needed: string[],
+): string {
+  const parts = needed.map((name) => {
+    const value = changes[name];
+    return value != null
+      ? `<code>${name}</code> to <code>${value}</code>`
+      : `<code>${name}</code>`;
+  });
+  if (parts.length === 1) {
+    return `<strong class="tutorial-next-label">Next:</strong> Set ${parts[0]}. Click that variable on the left of <code>=</code>.`;
+  }
+  return `<strong class="tutorial-next-label">Next:</strong> Set ${parts.join(" and ")}. Click each variable on the left of <code>=</code>.`;
 }
 
 function applyTutorialGuidance(): void {
@@ -2915,16 +3285,38 @@ function applyTutorialGuidance(): void {
   const next = timeline[stepIndex + 1];
   if (!current || !next) return;
 
+  const upcomingCall = upcomingTutorialCall();
+  // Starting the program: pulse main() even when an empty advance comes first.
+  if (
+    upcomingCall &&
+    upcomingCall.functionName === "main" &&
+    current.stack.length <= 1
+  ) {
+    predictHint.innerHTML =
+      `<strong class="tutorial-next-label">Next:</strong> Click <code>main()</code> to call it and start the program.`;
+    highlightTutorialCall("main", { firstStep: true });
+    return;
+  }
+
+  // Empty advance-then-call: guide the call with explicit parameter values.
+  if (upcomingCall) {
+    predictHint.innerHTML = formatTutorialCallHint(upcomingCall);
+    highlightTutorialCall(upcomingCall.functionName);
+    return;
+  }
+
   const kind = classifyTransition(current, next);
   const expected = expectedPrediction(current, next, tablesById());
-  const { short, howTo } = describeNextAction(kind);
 
   if (kind === "advance" && expected.kind === "advance") {
     const needed = Object.keys(expected.changes).filter(
       (name) => !stagedChanges.some((row) => row.name === name),
     );
     if (needed.length > 0) {
-      predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Set <code>${needed.join(", ")}</code>. ${howTo}`;
+      predictHint.innerHTML = formatTutorialAssignHint(
+        expected.changes,
+        needed,
+      );
       for (const name of needed) {
         markTutorialTargets(
           codeViewContent.querySelectorAll(
@@ -2934,7 +3326,7 @@ function applyTutorialGuidance(): void {
       }
       return;
     }
-    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Click line <code>${expected.line}</code> to advance after your staged values.`;
+    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Click line <code>${expected.line}</code> to advance.`;
     const lineEl = codeViewContent.querySelector(
       `.code-line[data-line="${expected.line}"]`,
     );
@@ -2943,13 +3335,17 @@ function applyTutorialGuidance(): void {
   }
 
   if (kind === "call" && expected.kind === "call") {
-    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> ${short}. ${howTo}`;
+    predictHint.innerHTML = formatTutorialCallHint(expected);
     highlightTutorialCall(expected.functionName);
     return;
   }
 
   if (kind === "return") {
-    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> ${short}. ${howTo}`;
+    const returnValue =
+      expected.kind === "return"
+        ? expected.returnValue
+        : expectedReturnValueRepr();
+    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Return <code>${returnValue}</code>. Click <code>return</code> or the highlighted call site and enter that value.`;
     markTutorialTargets(
       codeViewContent.querySelectorAll(
         "[data-predict='return'], .return-ready, .predict-return",
@@ -2959,7 +3355,10 @@ function applyTutorialGuidance(): void {
   }
 
   if (kind === "output") {
-    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> ${short}. ${howTo}`;
+    const output =
+      expected.kind === "output" ? expected.output : expectedOutputText();
+    const shown = output === "" ? "(empty)" : output;
+    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Produce output <code>${shown}</code>. Click <code>print</code> or the Output box and enter that text.`;
     markTutorialTargets(
       codeViewContent.querySelectorAll("[data-predict='output']"),
     );
@@ -2969,15 +3368,14 @@ function applyTutorialGuidance(): void {
 
 function renderPredictionPanel(): void {
   const finished = gameFinished();
-  completeMessage.hidden = !finished;
   if (finished) {
     hidePopover();
     clearStagedChanges();
     clearTutorialTargets();
-    setStatus("Complete", "complete");
     predictHint.hidden = true;
     announce("Problem complete. You predicted every step.");
     celebrateWin();
+    if (mistakes.length > 0) showMistakesPanel(true);
     return;
   }
 
@@ -3013,13 +3411,12 @@ function showSetup(): void {
   tables = [];
   timeline = [];
   stepIndex = 0;
-  attempts = 0;
+  clearMistakes();
   hidePopover();
   clearStagedChanges();
   clearTutorialTargets();
   exitTutorialDifficulty();
   clearWinState();
-  completeMessage.hidden = true;
   predictHint.hidden = false;
   predictHint.innerHTML = DEFAULT_PREDICT_HINT;
   syncTutorialChrome();
@@ -3050,9 +3447,61 @@ difficultySelectBoard.addEventListener("change", onDifficultySelectChange);
 
 restartBtn.addEventListener("click", () => {
   showSetup();
-  setStatus(ready ? "Ready" : "Loading Python…");
   startBtn.disabled = !ready || running;
 });
+
+progressMistakesEl.addEventListener("click", (event) => {
+  event.preventDefault();
+  if (mistakes.length === 0) return;
+  if (mistakesPanelPinned && !mistakesPanel.hidden) {
+    hideMistakesPanel(true);
+  } else {
+    showMistakesPanel(true);
+  }
+});
+
+progressMistakesEl.addEventListener("pointerenter", () => {
+  if (mistakes.length === 0) return;
+  showMistakesPanel();
+});
+
+progressMistakesEl.addEventListener("pointerleave", (event) => {
+  if (
+    event.relatedTarget instanceof Node &&
+    mistakesPanel.contains(event.relatedTarget)
+  ) {
+    return;
+  }
+  hideMistakesPanel();
+});
+
+mistakesPanel.addEventListener("pointerleave", (event) => {
+  if (
+    event.relatedTarget instanceof Node &&
+    progressMistakesEl.contains(event.relatedTarget)
+  ) {
+    return;
+  }
+  hideMistakesPanel();
+});
+
+document.addEventListener("pointerdown", (event) => {
+  if (!mistakesPanelPinned || mistakesPanel.hidden) return;
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (mistakesPanel.contains(target) || progressMistakesEl.contains(target)) {
+    return;
+  }
+  hideMistakesPanel(true);
+});
+
+window.addEventListener("resize", () => {
+  if (!mistakesPanel.hidden) positionMistakesPanel();
+});
+
+window.addEventListener("scroll", () => {
+  if (!mistakesPanel.hidden) positionMistakesPanel();
+}, true);
 
 startBtn.addEventListener("click", () => {
   if (!ready || running) return;
@@ -3080,8 +3529,7 @@ async function startProblem(template: ProblemTemplate): Promise<void> {
   startBtn.disabled = true;
   clearWinState();
   showBoard();
-  setStatus(template.setup ? "Expanding problem…" : "Tracing…");
-  attempts = 0;
+  clearMistakes();
   stepIndex = 0;
   hidePopover();
   clearStagedChanges();
@@ -3105,14 +3553,12 @@ async function startProblem(template: ProblemTemplate): Promise<void> {
       seed: expanded.seed,
     };
     sourceLines = problem.code.replace(/\n$/, "").split("\n");
-    setStatus("Tracing…");
     renderAll();
     post({ type: "run", code: problem.code });
   } catch (err) {
     running = false;
     startBtn.disabled = !ready;
     showSetup();
-    setStatus("Expand failed");
     announce(err instanceof Error ? err.message : String(err));
   }
 }
@@ -3123,14 +3569,12 @@ worker.onmessage = (event: MessageEvent<WorkerToMain>) => {
     ready = true;
     running = false;
     startBtn.disabled = false;
-    setStatus("Ready");
     return;
   }
   if (msg.type === "error") {
     ready = false;
     running = false;
     startBtn.disabled = true;
-    setStatus("Failed to load");
     announce(msg.message);
     return;
   }
@@ -3168,12 +3612,7 @@ worker.onmessage = (event: MessageEvent<WorkerToMain>) => {
     );
     stepIndex = timeline.length > 0 ? 0 : -1;
     if (msg.error) {
-      setStatus("Finished with errors");
       announce(msg.error);
-    } else if (timeline.length === 0) {
-      setStatus("No steps to predict");
-    } else {
-      setStatus("Predict the next step");
     }
     hidePopover();
     clearStagedChanges();
@@ -3182,7 +3621,6 @@ worker.onmessage = (event: MessageEvent<WorkerToMain>) => {
 };
 
 worker.onerror = (event) => {
-  setStatus("Worker error");
   announce(event.message || "Worker failed");
   running = false;
   startBtn.disabled = true;
@@ -3350,4 +3788,9 @@ fillDifficultySelect(difficultySelectBoard);
 syncDifficultySelects();
 syncTutorialChrome();
 showSetup();
+void document.fonts.ready.then(() => {
+  sizeSelectToLongestOption(problemSelect);
+  sizeSelectToLongestOption(difficultySelect);
+  sizeSelectToLongestOption(difficultySelectBoard);
+});
 post({ type: "init" });

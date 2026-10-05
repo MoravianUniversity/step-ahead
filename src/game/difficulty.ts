@@ -258,6 +258,129 @@ export function tipText(id: TipId): string {
   return TIP_COPY[id];
 }
 
+/** Mistake thresholds for identity vs answer progressive hints. */
+export function progressiveHintThresholds(
+  difficulty: Difficulty,
+): { identity: number; answer: number } | null {
+  if (difficulty === "hard") return null;
+  if (assistsLikeEasy(difficulty)) return { identity: 2, answer: 3 };
+  // Medium: same stages, but slower — and answer tip is guidance, not the value.
+  return { identity: 3, answer: 5 };
+}
+
+export type ProgressiveHintContext = {
+  kind: PopoverKind;
+  assignName?: string;
+  assignValue?: string;
+  functionName?: string;
+  /** Ordered parameter name → expected value for call hints. */
+  callParams?: Record<string, string>;
+  returnValue?: string;
+  output?: string;
+};
+
+/**
+ * Progressive answer hints based on mistakes so far on the current step.
+ * Easy/tutorial eventually reveal exact values; medium points at tables/stack.
+ */
+export function progressiveAnswerHints(
+  difficulty: Difficulty,
+  mistakeCount: number,
+  context: ProgressiveHintContext,
+): string[] {
+  const thresholds = progressiveHintThresholds(difficulty);
+  if (!thresholds || mistakeCount < thresholds.identity) return [];
+
+  const easy = assistsLikeEasy(difficulty);
+  const showIdentity = mistakeCount >= thresholds.identity;
+  const showAnswer = mistakeCount >= thresholds.answer;
+  const hints: string[] = [];
+
+  if (context.kind === "assign") {
+    if (showIdentity && context.assignName) {
+      hints.push(`The variable ${context.assignName} is being set.`);
+    }
+    if (showAnswer) {
+      if (easy && context.assignValue != null && context.assignValue !== "") {
+        hints.push(
+          context.assignName
+            ? `Set ${context.assignName} to ${context.assignValue}.`
+            : `It is set to ${context.assignValue}.`,
+        );
+      } else if (!easy) {
+        hints.push(
+          "Look at the trace table for the current function call to find the new value.",
+        );
+      }
+    }
+    return hints;
+  }
+
+  if (context.kind === "call") {
+    const names = Object.keys(context.callParams ?? {});
+    const fn = context.functionName ?? "the function";
+    if (showIdentity) {
+      if (names.length > 0) {
+        hints.push(
+          `Call ${fn}() with parameter${names.length === 1 ? "" : "s"} ${names.join(", ")}.`,
+        );
+      } else {
+        hints.push(`Call ${fn}() next (no parameters).`);
+      }
+    }
+    if (showAnswer) {
+      if (easy && names.length > 0 && context.callParams) {
+        const parts = names.map(
+          (name) => `${name}=${context.callParams![name]}`,
+        );
+        hints.push(`Use ${parts.join(", ")}.`);
+      } else if (easy && names.length === 0) {
+        hints.push(`Call ${fn}() with no arguments.`);
+      } else if (!easy) {
+        hints.push(
+          "Look at the argument values in the call and the current values in the trace tables.",
+        );
+      }
+    }
+    return hints;
+  }
+
+  if (context.kind === "return") {
+    if (showIdentity) {
+      hints.push("This step needs a return value.");
+    }
+    if (showAnswer) {
+      if (easy && context.returnValue != null) {
+        hints.push(`Return ${context.returnValue}.`);
+      } else if (!easy) {
+        hints.push(
+          "Look at return values shown in the call stack for help.",
+        );
+      }
+    }
+    return hints;
+  }
+
+  if (context.kind === "output") {
+    if (showIdentity) {
+      hints.push("This step produces printed output.");
+    }
+    if (showAnswer) {
+      if (easy && context.output != null) {
+        const shown =
+          context.output === "" ? "(empty output)" : context.output;
+        hints.push(`The output is: ${shown}`);
+      } else if (!easy) {
+        hints.push(
+          "Look at the current values in the trace table to decide what print writes.",
+        );
+      }
+    }
+  }
+
+  return hints;
+}
+
 export function initialTipsForPopover(
   kind: PopoverKind,
   difficulty: Difficulty,

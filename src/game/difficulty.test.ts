@@ -12,6 +12,8 @@ import {
   isTutorial,
   joinReturnValueSlots,
   parseDifficulty,
+  progressiveAnswerHints,
+  progressiveHintThresholds,
   returnValueSlotCount,
   splitReturnValueSlots,
   tipsForPopover,
@@ -223,6 +225,109 @@ assertEqual(
   ),
   [],
   "hard never reveals tips on feedback",
+);
+
+assertEqual(
+  progressiveHintThresholds("easy"),
+  { identity: 2, answer: 3 },
+  "easy progressive thresholds",
+);
+assertEqual(
+  progressiveHintThresholds("medium"),
+  { identity: 3, answer: 5 },
+  "medium progressive thresholds",
+);
+assertEqual(progressiveHintThresholds("hard"), null, "hard has no progressive hints");
+
+assertEqual(
+  progressiveAnswerHints("easy", 1, {
+    kind: "assign",
+    assignName: "x",
+    assignValue: "3",
+  }),
+  [],
+  "easy assign quiet before identity threshold",
+);
+assertEqual(
+  progressiveAnswerHints("easy", 2, {
+    kind: "assign",
+    assignName: "x",
+    assignValue: "3",
+  }),
+  ["The variable x is being set."],
+  "easy assign names variable at 2 mistakes",
+);
+assertEqual(
+  progressiveAnswerHints("easy", 3, {
+    kind: "assign",
+    assignName: "x",
+    assignValue: "3",
+  }),
+  ["The variable x is being set.", "Set x to 3."],
+  "easy assign reveals value at 3 mistakes",
+);
+assertEqual(
+  progressiveAnswerHints("medium", 3, {
+    kind: "assign",
+    assignName: "x",
+    assignValue: "3",
+  }),
+  ["The variable x is being set."],
+  "medium assign names variable at 3 mistakes",
+);
+assert(
+  progressiveAnswerHints("medium", 5, {
+    kind: "assign",
+    assignName: "x",
+    assignValue: "3",
+  }).some((hint) => hint.includes("trace table")),
+  "medium assign points at trace table instead of value",
+);
+assert(
+  !progressiveAnswerHints("medium", 5, {
+    kind: "assign",
+    assignName: "x",
+    assignValue: "3",
+  }).some((hint) => hint.includes("3")),
+  "medium assign does not reveal exact value",
+);
+assert(
+  progressiveAnswerHints("easy", 3, {
+    kind: "return",
+    returnValue: "42",
+  }).includes("Return 42."),
+  "easy return reveals value",
+);
+assert(
+  progressiveAnswerHints("medium", 5, {
+    kind: "return",
+    returnValue: "42",
+  }).some((hint) => hint.toLowerCase().includes("call stack")),
+  "medium return points at call stack",
+);
+assert(
+  progressiveAnswerHints("easy", 3, {
+    kind: "call",
+    functionName: "foo",
+    callParams: { a: "1", b: "2" },
+  }).some((hint) => hint.includes("a=1") && hint.includes("b=2")),
+  "easy call reveals parameter values",
+);
+assert(
+  progressiveAnswerHints("medium", 5, {
+    kind: "output",
+    output: "hi",
+  }).some((hint) => hint.includes("trace table")),
+  "medium output points at trace table",
+);
+assertEqual(
+  progressiveAnswerHints("hard", 10, {
+    kind: "assign",
+    assignName: "x",
+    assignValue: "1",
+  }),
+  [],
+  "hard never gets progressive answer hints",
 );
 
 if (failed > 0) {

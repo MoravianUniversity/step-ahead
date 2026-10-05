@@ -48,11 +48,12 @@ body.game-won {
 
 .game-hero {
   margin-bottom: 1.75rem;
+  font-family: var(--font-display);
 }
 
 .game-brand {
   margin: 0 0 0.5rem;
-  font-family: var(--font-display);
+  font-family: inherit;
   font-size: clamp(2.2rem, 4vw, 3rem);
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -72,11 +73,6 @@ body.game-won {
   color: var(--ink-muted);
 }
 
-.game-hero .complete-message {
-  margin-top: 0.85rem;
-  max-width: 38rem;
-}
-
 .game-setup,
 .game-board {
   display: grid;
@@ -87,6 +83,13 @@ body.game-won {
   padding: 1.25rem;
   border: 1px solid var(--line);
   background: var(--surface);
+  font-family: var(--font-display);
+}
+
+.setup-tutorial {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--ink-muted);
 }
 
 .problem-picker,
@@ -113,23 +116,51 @@ body.game-won {
   color: var(--ink);
   background: var(--surface-solid);
   border: 1px solid var(--line);
-  padding: 0.35rem 0.5rem;
+  padding: 0.4rem 0.65rem;
+}
+
+.problem-picker select,
+.difficulty-picker select {
+  appearance: none;
+  font-family: var(--font-display);
+  min-height: 2.35rem;
+  padding: 0.45rem 1.85rem 0.45rem 0.7rem;
+  background-color: var(--surface-solid);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1.5 1.75L6 6.25L10.5 1.75' stroke='%234a5d6e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.55rem center;
+  background-size: 0.75rem 0.5rem;
+}
+
+body.game-won .problem-picker select,
+body.game-won .difficulty-picker select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1.5 1.75L6 6.25L10.5 1.75' stroke='%23a8d5cc' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 .toolbar-difficulty {
-  margin-left: auto;
+  margin: 0;
 }
 
-.setup-actions {
+.setup-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.85rem 1.25rem;
+  gap: 0.75rem 1rem;
+}
+
+.setup-controls .problem-picker,
+.setup-controls .difficulty-picker {
+  flex: 0 1 auto;
+}
+
+.setup-controls .problem-picker select,
+.setup-controls .difficulty-picker select {
+  max-width: 100%;
 }
 
 .tutorial-link {
   color: var(--accent);
-  font-size: 0.95rem;
+  font-size: inherit;
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }
@@ -144,12 +175,21 @@ body.game-won {
 }
 
 .tutorial-badge {
-  margin: 0;
-  color: var(--accent);
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  margin-top: 0;
+  margin-bottom: 0;
+  margin-right: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.35rem;
+  padding: 0.45rem 0.7rem;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: inherit;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
 }
 
 .predict-popover textarea {
@@ -173,6 +213,13 @@ body.game-won {
   background: var(--accent);
 }
 
+#start {
+  flex: 0 0 auto;
+  min-height: 2.35rem;
+  padding: 0.45rem 1rem;
+  letter-spacing: 0.01em;
+}
+
 #start:disabled,
 .predict-submit:disabled {
   opacity: 0.55;
@@ -193,41 +240,22 @@ body.game-won {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem 1rem;
-  justify-content: space-between;
-}
-
-.game-status {
-  margin: 0;
-  color: var(--ink-muted);
-  font-size: 0.85rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 0.25rem;
-  transition: color 200ms ease, background 200ms ease, box-shadow 200ms ease;
-}
-
-.game-status.is-success {
-  color: var(--success);
-  background: color-mix(in srgb, var(--success) 14%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 35%, transparent);
-}
-
-.game-status.is-error {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 35%, transparent);
-}
-
-.game-status.is-complete {
-  color: var(--accent-ink);
-  background: var(--accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+  font-family: var(--font-display);
 }
 
 .game-progress {
   margin: 0;
-  flex: 1 1 12rem;
-  min-width: 10rem;
-  max-width: 18rem;
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.game-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .game-progress-meta {
@@ -239,11 +267,83 @@ body.game-won {
   font-size: 0.8rem;
 }
 
+.progress-mistakes {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  text-underline-offset: 0.15em;
+}
+
+.progress-mistakes:hover,
+.progress-mistakes[aria-expanded="true"] {
+  color: var(--danger);
+  text-decoration-color: var(--danger);
+}
+
+.mistakes-panel {
+  position: fixed;
+  z-index: 1100;
+  width: max-content;
+  max-width: min(28rem, calc(100vw - 12px));
+  max-height: min(20rem, 50vh);
+  overflow: auto;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--surface-solid);
+  box-shadow: 0 0.45rem 1.25rem var(--shadow);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.mistakes-panel-title {
+  margin: 0 0 0.45rem;
+  color: var(--danger);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.mistakes-panel-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mistakes-panel-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.45rem 0.65rem;
+  align-items: baseline;
+}
+
+.mistakes-panel-step {
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.mistakes-panel-message {
+  color: var(--ink);
+}
+
 .game-progress-bar {
   height: 0.45rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--line) 55%, var(--surface));
   overflow: hidden;
+  transition:
+    background 200ms ease,
+    box-shadow 200ms ease;
 }
 
 .game-progress-fill {
@@ -255,11 +355,43 @@ body.game-won {
     var(--accent),
     color-mix(in srgb, var(--accent) 35%, var(--success))
   );
-  transition: width 700ms ease;
+  transition:
+    width 700ms ease,
+    background 200ms ease;
 }
 
 .game-board[data-progress="100"] .game-progress-fill {
   background: linear-gradient(90deg, var(--accent), var(--success));
+}
+
+.game-progress.is-success .game-progress-bar {
+  background: color-mix(in srgb, var(--success) 22%, var(--surface));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--success) 45%, transparent),
+    0 0 16px color-mix(in srgb, var(--success) 42%, transparent);
+}
+
+.game-progress.is-success .game-progress-fill {
+  background: linear-gradient(
+    90deg,
+    var(--success),
+    color-mix(in srgb, var(--success) 55%, var(--accent))
+  );
+}
+
+.game-progress.is-error .game-progress-bar {
+  background: color-mix(in srgb, var(--danger) 18%, var(--surface));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--danger) 45%, transparent),
+    0 0 16px color-mix(in srgb, var(--danger) 42%, transparent);
+}
+
+.game-progress.is-error .game-progress-fill {
+  background: linear-gradient(
+    90deg,
+    var(--danger),
+    color-mix(in srgb, var(--danger) 55%, var(--warning))
+  );
 }
 
 .game-layout {
@@ -268,14 +400,36 @@ body.game-won {
 }
 
 @media (min-width: 900px) {
+  .game-toolbar,
   .game-layout {
+    display: grid;
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    column-gap: 1.25rem;
+    align-items: center;
+  }
+
+  .game-layout {
     align-items: start;
+  }
+
+  .game-progress {
+    grid-column: 1;
+    width: 100%;
+  }
+
+  .game-toolbar-actions {
+    grid-column: 2;
+    margin-left: 0;
+    justify-self: end;
   }
 }
 
-.game-code-pane h2,
-.game-panel h2 {
+.game-code-pane {
+  display: grid;
+  gap: 1rem;
+}
+
+.game-section h2 {
   margin: 0 0 0.55rem;
   font-family: var(--font-display);
   font-size: 1.15rem;
@@ -471,7 +625,6 @@ body.game-won {
 }
 
 .game-io {
-  margin-top: 1rem;
   border: 1px solid var(--line);
   background: var(--surface);
   padding: 0.75rem 0.9rem;
@@ -489,10 +642,6 @@ body.game-won {
 
 .game-io.fx-success-io {
   animation: fx-success-soft var(--fx-success-ms) ease;
-}
-
-.game-io h2 {
-  margin: 0 0 0.45rem;
 }
 
 .game-io pre {
@@ -712,14 +861,23 @@ body.game-won {
 }
 
 .predict-hint {
-  margin: 0;
-  color: var(--ink-muted);
-  font-size: 0.9rem;
+  margin: 0 0 0.55rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.predict-hint[hidden] {
+  display: none;
 }
 
 .predict-hint code {
-  font-family: inherit;
-  font-size: 0.85em;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }
 
 .predict-popover {
@@ -821,6 +979,11 @@ body.game-won {
   line-height: 1.35;
 }
 
+.predict-tip-progressive {
+  color: var(--accent);
+  font-weight: 500;
+}
+
 /* Tutorial next-step guidance */
 .tutorial-mode .tutorial-next-label {
   color: var(--accent);
@@ -836,6 +999,58 @@ body.game-won {
     0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
   animation: tutorial-pulse 1.35s ease-in-out infinite;
   cursor: pointer;
+}
+
+.tutorial-target-first {
+  display: inline-block;
+  font-weight: 700;
+  padding: 0 0.12em;
+  border-radius: 0.25rem;
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 0 22px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: tutorial-pulse-strong 0.85s ease-in-out infinite;
+}
+
+.tutorial-target-first:hover,
+.tutorial-target-first .predict-call,
+.tutorial-target-first .predict-call:hover {
+  color: var(--accent-ink);
+  background: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent-ink) 75%, transparent);
+}
+
+.tutorial-target-first .predict-call,
+.tutorial-target-first .predict-call:hover {
+  background: transparent;
+}
+
+.tutorial-target.predict-call:hover,
+.tutorial-target.predict-return:hover,
+.tutorial-target.predict-assign:hover,
+.tutorial-target.predict-print:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+@keyframes tutorial-pulse-strong {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--accent) 50%, transparent),
+      0 0 14px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  50% {
+    transform: scale(1.14);
+    filter: brightness(1.08);
+    box-shadow:
+      0 0 0 7px color-mix(in srgb, var(--accent) 25%, transparent),
+      0 0 28px color-mix(in srgb, var(--accent) 65%, transparent);
+  }
 }
 
 .tutorial-target-line {
@@ -970,22 +1185,6 @@ button.remove-change {
   color: var(--warning);
 }
 
-.complete-message {
-  margin: 0.85rem 0 0;
-  padding: 0.85rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent);
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  font-weight: 600;
-  transform-origin: left center;
-}
-
-.complete-message.fx-complete-banner {
-  animation: fx-complete-banner 700ms ease both;
-}
-
 .game-board.is-celebrating {
   pointer-events: none;
   user-select: none;
@@ -1055,30 +1254,15 @@ button.remove-change {
 @keyframes fx-cell-slide {
   0% {
     opacity: 0.35;
-    transform: translateY(6px);
+    background: color-mix(in srgb, var(--success) 8%, transparent);
   }
   55% {
     opacity: 1;
-    transform: translateY(0);
+    background: color-mix(in srgb, var(--success) 28%, transparent);
   }
   100% {
     opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fx-complete-banner {
-  0% {
-    opacity: 0;
-    transform: scale(0.92) translateY(8px);
-  }
-  60% {
-    opacity: 1;
-    transform: scale(1.03) translateY(0);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
+    background: color-mix(in srgb, var(--success) 22%, transparent);
   }
 }
 
@@ -1108,8 +1292,7 @@ button.remove-change {
 
   .stack-list li.current.fx-success-stack,
   .trace-table.active.fx-success-table,
-  .game-io.fx-success-io,
-  .complete-message.fx-complete-banner {
+  .game-io.fx-success-io {
     animation: none;
   }
 
@@ -1119,12 +1302,22 @@ button.remove-change {
   }
 
   .tutorial-target,
-  .tutorial-target-line {
+  .tutorial-target-line,
+  .tutorial-target-first {
     animation: none;
   }
 
-  .tutorial-target {
+  .tutorial-target,
+  .tutorial-target-first {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  .tutorial-target-first {
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 16px color-mix(in srgb, var(--accent) 40%, transparent);
   }
 }
 
