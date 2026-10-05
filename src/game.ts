@@ -64,9 +64,7 @@ app.innerHTML = `
       <p class="game-brand">Step Ahead</p>
       <h1>What happens next?</h1>
       <p class="game-lede predict-hint" id="predict-hint">
-        Predict each step by clicking in the code or output.
-        Set a variable by clicking its name on the left of <code>=</code>,
-        then click a line to advance. Or click a call, return, print, or the output box.
+        Predict each step in the code.
       </p>
       <p class="sr-only" id="announce" aria-live="assertive"></p>
       <p class="complete-message" id="complete-message" hidden>
@@ -2872,10 +2870,7 @@ async function submitAdvanceToLine(line: number): Promise<void> {
   await gradeAndApply(guess);
 }
 
-const DEFAULT_PREDICT_HINT =
-  "Predict each step by clicking in the code or output. " +
-  "Set a variable by clicking its name on the left of <code>=</code>, " +
-  "then click a line to advance. Or click a call, return, print, or the output box.";
+const DEFAULT_PREDICT_HINT = "Predict each step in the code.";
 
 function gamePageEl(): HTMLElement | null {
   return document.querySelector<HTMLElement>(".game-page");
@@ -2999,7 +2994,7 @@ function renderPredictionPanel(): void {
       "Return next: click the highlighted call site (↩) and enter the return value.";
   } else {
     predictHint.textContent =
-      "Click a variable, call, return, print, or output to predict — advances can combine with those actions when you target the next line.";
+      "Click a variable, call, return, or print to predict the next step.";
   }
 }
 
