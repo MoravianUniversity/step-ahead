@@ -1,5 +1,6 @@
 id: helper-cascade
 title: Helper cascade
+order: 60
 description: Trace a cascade of helper calls and two separate print statements.
 
 [random]

@@ -6,6 +6,7 @@ import {
   coerceSetupValue,
   substituteSlots,
   parseProblemFile,
+  compareProblemOrder,
   type Bindings,
   type ProblemTemplate,
   type SlotValue,
@@ -27,9 +28,11 @@ function stemFromPath(path: string): string {
 function loadTemplates(): ProblemTemplate[] {
   const templates: ProblemTemplate[] = [];
   for (const [path, source] of Object.entries(problemModules)) {
-    templates.push(parseProblemFile(source, stemFromPath(path)));
+    const template = parseProblemFile(source, stemFromPath(path));
+    if (!template.enable) continue;
+    templates.push(template);
   }
-  templates.sort((a, b) => a.title.localeCompare(b.title));
+  templates.sort(compareProblemOrder);
   return templates;
 }
 

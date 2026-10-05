@@ -1,5 +1,6 @@
 id: chained-helpers
 title: Chained helpers
+order: 40
 description: Trace helpers that call each other, then a compound expression in main.
 
 [random]

@@ -1,5 +1,6 @@
 id: function-mastery
 title: Function Mastery
+order: 70
 description: Trace parameter binding, returns, and nested calls — names and structure vary each run.
 
 [setup]

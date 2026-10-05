@@ -8,10 +8,15 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "verify:game": "node scripts/verify-game.mjs",
-    "verify:problem-format": "npx --yes tsx src/game/problemFormat.test.ts"
+    "verify:problem-format": "npx --yes tsx src/game/problemFormat.test.ts",
+    "verify:difficulty": "npx --yes tsx src/game/difficulty.test.ts"
   },
   "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
     "typescript": "~5.7.2",
     "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "canvas-confetti": "^1.9.4"
   }
 }

@@ -1,0 +1,50 @@
+:root {
+  --ink: #15202b;
+  --ink-muted: #4a5d6e;
+  --paper: #e7f3ef;
+  --paper-deep: #d5e8f4;
+  --paper-top: #c8e4f0;
+  --surface: #f4fbf8;
+  --surface-solid: #ffffff;
+  --accent: #0b8f7f;
+  --accent-strong: #067a6c;
+  --accent-ink: #f3fffc;
+  --success: #2a9d4a;
+  --success-ink: #f2fff5;
+  --danger: #d64545;
+  --danger-ink: #fff7f7;
+  --warning: #c47a00;
+  --line: #a8c0c8;
+  --param: #1a6fa0;
+  --return-mark: #b85a28;
+  --assign-mark: #2a6f9a;
+  --shadow: rgba(21, 32, 43, 0.18);
+  --font-display: "Source Serif 4", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --fx-success-ms: 850ms;
+  --fx-error-ms: 900ms;
+  --progress: 0%;
+}
+
+body.game-won {
+  --ink: #e8faf6;
+  --ink-muted: #a8d5cc;
+  --paper: #0a4f47;
+  --paper-deep: #083d38;
+  --paper-top: #0d6358;
+  --surface: #0f5c52;
+  --surface-solid: #127066;
+  --accent: #7ef0d8;
+  --accent-strong: #a6ffe9;
+  --accent-ink: #043832;
+  --success: #8dffb0;
+  --success-ink: #043822;
+  --danger: #ff8f8f;
+  --danger-ink: #3a1010;
+  --warning: #ffd28a;
+  --line: #2f8a7c;
+  --param: #9ad4f5;
+  --return-mark: #ffc49a;
+  --assign-mark: #9ecff0;
+  --shadow: rgba(0, 0, 0, 0.35);
+}

@@ -1,5 +1,6 @@
 id: add-sub-twist
 title: Add and sub twist
+order: 50
 description: Trace two helpers with misleading names, then a call that nests them.
 
 [random]

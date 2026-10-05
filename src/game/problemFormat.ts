@@ -10,6 +10,13 @@ export type ProblemTemplate = {
   id: string;
   title: string;
   description: string;
+  /**
+   * Catalog sort key (ascending). Missing `order:` in the file becomes
+   * `Infinity` so unnumbered drafts sort after numbered problems.
+   */
+  order: number;
+  /** When false (`enable: false`), the problem is parsed but omitted from the picker. */
+  enable: boolean;
   random: RandomBinding[];
   /** Python source for optional [setup], or null. */
   setup: string | null;
@@ -198,13 +205,28 @@ function splitSections(source: string): {
   };
 }
 
+function parseBoolMeta(value: string, key: string): boolean {
+  const v = value.toLowerCase();
+  if (v === "true") return true;
+  if (v === "false") return false;
+  throw new Error(`Invalid ${key} "${value}" (expected true or false)`);
+}
+
 function parseMetadata(
   meta: string,
   filenameStem?: string,
-): { id: string; title: string; description: string } {
+): {
+  id: string;
+  title: string;
+  description: string;
+  order: number;
+  enable: boolean;
+} {
   let id: string | undefined;
   let title: string | undefined;
   let description = "";
+  let order = Number.POSITIVE_INFINITY;
+  let enable = true;
 
   for (const rawLine of meta.split("\n")) {
     const line = rawLine.trim();
@@ -218,6 +240,12 @@ function parseMetadata(
     if (key === "id") id = value;
     else if (key === "title") title = value;
     else if (key === "description") description = value;
+    else if (key === "order") {
+      if (!/^-?\d+$/.test(value)) {
+        throw new Error(`Invalid order "${value}" (expected an integer)`);
+      }
+      order = Number(value);
+    } else if (key === "enable") enable = parseBoolMeta(value, "enable");
     else throw new Error(`Unknown metadata key "${key}"`);
   }
 
@@ -236,7 +264,7 @@ function parseMetadata(
     throw new Error(`Invalid problem id "${id}"`);
   }
 
-  return { id, title, description };
+  return { id, title, description, order, enable };
 }
 
 export function parseProblemFile(
@@ -258,10 +286,21 @@ export function parseProblemFile(
     id: meta.id,
     title: meta.title,
     description: meta.description,
+    order: meta.order,
+    enable: meta.enable,
     random,
     setup: sections.setup && sections.setup.trim() ? sections.setup : null,
     codeTemplate: sections.code,
   };
+}
+
+/** Sort key for the problem picker: ascending order, then title. */
+export function compareProblemOrder(
+  a: Pick<ProblemTemplate, "order" | "title">,
+  b: Pick<ProblemTemplate, "order" | "title">,
+): number {
+  if (a.order !== b.order) return a.order - b.order;
+  return a.title.localeCompare(b.title);
 }
 
 export function expandRandom(

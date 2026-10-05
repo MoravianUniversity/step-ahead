@@ -1,17 +1,4 @@
-:root {
-  --ink: #1a2330;
-  --ink-muted: #5a6575;
-  --paper: #e8eef4;
-  --paper-deep: #d5dee8;
-  --surface: #f7fafc;
-  --accent: #0d6e6e;
-  --accent-ink: #f4fffe;
-  --danger: #9b2c2c;
-  --warning: #8a5a00;
-  --line: #b8c4d0;
-  --font-display: "Source Serif 4", Georgia, serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-}
+@import "./theme.css";
 
 *,
 *::before,
@@ -35,8 +22,18 @@ body {
   font-size: 14px;
   line-height: 1.5;
   background:
-    linear-gradient(180deg, #cfd9e4 0%, var(--paper) 28%, var(--paper-deep) 100%);
+    linear-gradient(
+      165deg,
+      var(--paper-top) 0%,
+      var(--paper) 42%,
+      var(--paper-deep) 100%
+    );
   background-attachment: fixed;
+  transition: color 400ms ease, background 500ms ease;
+}
+
+body.game-won {
+  transition: color 500ms ease, background 600ms ease;
 }
 
 #app {
@@ -92,14 +89,16 @@ body {
   background: var(--surface);
 }
 
-.problem-picker {
+.problem-picker,
+.difficulty-picker {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
 }
 
-.problem-picker span {
+.problem-picker span,
+.difficulty-picker span {
   color: var(--ink-muted);
   font-size: 0.8rem;
   text-transform: uppercase;
@@ -107,13 +106,50 @@ body {
 }
 
 .problem-picker select,
+.difficulty-picker select,
 .predict-popover input,
 .predict-popover textarea {
   font: inherit;
   color: var(--ink);
-  background: #fff;
+  background: var(--surface-solid);
   border: 1px solid var(--line);
   padding: 0.35rem 0.5rem;
+}
+
+.toolbar-difficulty {
+  margin-left: auto;
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem 1.25rem;
+}
+
+.tutorial-link {
+  color: var(--accent);
+  font-size: 0.95rem;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.tutorial-link:hover {
+  color: var(--ink);
+}
+
+.tutorial-link[aria-disabled="true"] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.tutorial-badge {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .predict-popover textarea {
@@ -160,11 +196,70 @@ body {
   justify-content: space-between;
 }
 
-.game-status,
-.game-progress {
+.game-status {
   margin: 0;
   color: var(--ink-muted);
   font-size: 0.85rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.25rem;
+  transition: color 200ms ease, background 200ms ease, box-shadow 200ms ease;
+}
+
+.game-status.is-success {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 35%, transparent);
+}
+
+.game-status.is-error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.game-status.is-complete {
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.game-progress {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  max-width: 18rem;
+}
+
+.game-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.3rem;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+}
+
+.game-progress-bar {
+  height: 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 55%, var(--surface));
+  overflow: hidden;
+}
+
+.game-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 35%, var(--success))
+  );
+  transition: width 700ms ease;
+}
+
+.game-board[data-progress="100"] .game-progress-fill {
+  background: linear-gradient(90deg, var(--accent), var(--success));
 }
 
 .game-layout {
@@ -214,12 +309,13 @@ body {
 }
 
 .code-line.predict-line:hover {
-  background: rgba(13, 110, 110, 0.08);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .code-line.predict-line-error {
-  background: rgba(155, 44, 44, 0.16);
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
   box-shadow: inset 3px 0 0 var(--danger);
+  animation: fx-shake var(--fx-error-ms) ease, fx-danger-pulse var(--fx-error-ms) ease;
 }
 
 .code-line-number {
@@ -250,13 +346,17 @@ body {
 }
 
 .code-line.current-line {
-  background: rgba(13, 110, 110, 0.18);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+.code-line.current-line.fx-success-line {
+  animation: fx-success-line var(--fx-success-ms) ease;
+}
+
 .code-line.stack-line {
-  background: rgba(90, 101, 117, 0.12);
-  box-shadow: inset 3px 0 0 rgba(90, 101, 117, 0.5);
+  background: color-mix(in srgb, var(--ink-muted) 12%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ink-muted) 50%, transparent);
 }
 
 .predict-call,
@@ -276,11 +376,11 @@ body {
 }
 
 .predict-return {
-  text-decoration-color: color-mix(in srgb, #8a4b2a 70%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--return-mark) 70%, transparent);
 }
 
 .predict-assign {
-  text-decoration-color: color-mix(in srgb, #2a5f8a 75%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--assign-mark) 75%, transparent);
   font-weight: 500;
 }
 
@@ -289,7 +389,7 @@ body {
 .predict-assign:hover,
 .predict-print:hover {
   color: var(--accent);
-  background: rgba(13, 110, 110, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .game-call-history {
@@ -315,8 +415,8 @@ body {
 
 .game-call-history.return-ready {
   color: var(--accent);
-  background: rgba(13, 110, 110, 0.16);
-  box-shadow: 0 0 0 2px rgba(13, 110, 110, 0.45);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
   text-decoration-color: var(--accent);
   text-decoration-thickness: 2px;
 }
@@ -340,7 +440,7 @@ body {
 }
 
 .game-call-history.return-ready:hover {
-  background: rgba(13, 110, 110, 0.24);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .game-call-tooltip {
@@ -351,7 +451,7 @@ body {
   padding: 0.35rem;
   border: 1px solid var(--line);
   background: var(--surface);
-  box-shadow: 0 0.45rem 1.25rem rgba(26, 35, 48, 0.2);
+  box-shadow: 0 0.45rem 1.25rem var(--shadow);
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: 0.82rem;
@@ -383,8 +483,12 @@ body {
 
 .game-io.predict-ready:hover,
 .game-io.predict-ready:focus-visible {
-  outline: 2px solid rgba(13, 110, 110, 0.45);
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 2px;
+}
+
+.game-io.fx-success-io {
+  animation: fx-success-soft var(--fx-success-ms) ease;
 }
 
 .game-io h2 {
@@ -417,6 +521,10 @@ body {
 .stack-list li.current {
   font-weight: 500;
   color: var(--accent);
+}
+
+.stack-list li.current.fx-success-stack {
+  animation: fx-success-soft var(--fx-success-ms) ease;
 }
 
 .tables-panel .tables-scroll {
@@ -474,8 +582,12 @@ body {
 }
 
 .trace-table.on-stack:not(.active) {
-  border-left: 3px solid rgba(90, 101, 117, 0.45);
+  border-left: 3px solid color-mix(in srgb, var(--ink-muted) 45%, transparent);
   padding-left: 0.45rem;
+}
+
+.trace-table.active.fx-success-table {
+  animation: fx-success-soft var(--fx-success-ms) ease;
 }
 
 .table-scroll {
@@ -483,7 +595,7 @@ body {
   max-width: 100%;
   width: fit-content;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--surface-solid);
 }
 
 .trace-table table {
@@ -513,12 +625,12 @@ body {
 }
 
 .trace-table th {
-  background: rgba(13, 110, 110, 0.08);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   font-weight: 500;
 }
 
 .trace-table th.is-param {
-  background: rgba(10, 92, 138, 0.14);
+  background: color-mix(in srgb, var(--param) 16%, transparent);
 }
 
 .trace-table th .var-name {
@@ -526,7 +638,7 @@ body {
 }
 
 .trace-table th .var-name.var-param {
-  color: #0a5c8a;
+  color: var(--param);
 }
 
 .trace-table th .var-type {
@@ -538,7 +650,14 @@ body {
 }
 
 .trace-table td.current-cell {
-  background: rgba(13, 110, 110, 0.2);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.trace-table td.current-cell.fx-success-cell,
+.trace-table td.fx-success-cell {
+  animation: fx-cell-slide var(--fx-success-ms) ease;
+  background: color-mix(in srgb, var(--success) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success) 40%, transparent);
 }
 
 .trace-table td.blank {
@@ -551,7 +670,7 @@ body {
 }
 
 .trace-table td.staged-cell {
-  background: rgba(42, 95, 138, 0.12);
+  background: color-mix(in srgb, var(--assign-mark) 14%, transparent);
 }
 
 .trace-table .staged-editor {
@@ -571,8 +690,8 @@ body {
   field-sizing: content;
   font: inherit;
   color: var(--ink);
-  background: #fff;
-  border: 1px dashed color-mix(in srgb, #2a5f8a 55%, var(--line));
+  background: var(--surface-solid);
+  border: 1px dashed color-mix(in srgb, var(--assign-mark) 55%, var(--line));
   padding: 0.15rem 0.3rem;
 }
 
@@ -611,7 +730,7 @@ body {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--line);
   background: var(--surface);
-  box-shadow: 0 0.55rem 1.4rem rgba(26, 35, 48, 0.22);
+  box-shadow: 0 0.55rem 1.4rem var(--shadow);
 }
 
 .predict-popover-form {
@@ -663,6 +782,100 @@ body {
   opacity: 1;
 }
 
+.param-row-fixed {
+  opacity: 1;
+}
+
+.param-name-locked {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid transparent;
+  color: var(--ink-muted);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.9rem;
+}
+
+.return-slots {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.predict-tips {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 70%, var(--surface-solid));
+}
+
+.predict-tips[hidden] {
+  display: none;
+}
+
+.predict-tip {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+/* Tutorial next-step guidance */
+.tutorial-mode .tutorial-next-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tutorial-target {
+  position: relative;
+  border-radius: 0.2rem;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: tutorial-pulse 1.35s ease-in-out infinite;
+  cursor: pointer;
+}
+
+.tutorial-target-line {
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  animation: tutorial-line-pulse 1.35s ease-in-out infinite;
+}
+
+#io.tutorial-target {
+  border-radius: 0.35rem;
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+@keyframes tutorial-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--accent) 75%, transparent),
+      0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent);
+    background: color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+}
+
+@keyframes tutorial-line-pulse {
+  0%,
+  100% {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  50% {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+}
+
 .hint {
   margin: 0;
   color: var(--ink-muted);
@@ -699,9 +912,17 @@ body {
 .field-error input,
 .field-error textarea,
 input.field-error,
-.change-row.field-error {
+.change-row.field-error,
+.field.field-error {
   border-color: var(--danger);
-  box-shadow: 0 0 0 1px rgba(155, 44, 44, 0.25);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.field-error.fx-error-shake,
+input.field-error.fx-error-shake,
+.change-row.field-error.fx-error-shake,
+.field.field-error.fx-error-shake {
+  animation: fx-shake var(--fx-error-ms) ease, fx-danger-pulse var(--fx-error-ms) ease;
 }
 
 .field-warning input,
@@ -709,7 +930,7 @@ input.field-error,
 input.field-warning,
 .change-row.field-warning,
 label.field-warning {
-  border-color: #c4892a;
+  border-color: var(--warning);
 }
 
 .change-rows {
@@ -751,11 +972,160 @@ button.remove-change {
 
 .complete-message {
   margin: 0.85rem 0 0;
-  padding: 0.7rem 0.8rem;
-  border: 1px solid rgba(13, 110, 110, 0.35);
-  background: rgba(13, 110, 110, 0.1);
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
-  font-weight: 500;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  transform-origin: left center;
+}
+
+.complete-message.fx-complete-banner {
+  animation: fx-complete-banner 700ms ease both;
+}
+
+.game-board.is-celebrating {
+  pointer-events: none;
+  user-select: none;
+}
+
+@keyframes fx-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15% {
+    transform: translateX(-4px);
+  }
+  30% {
+    transform: translateX(4px);
+  }
+  45% {
+    transform: translateX(-3px);
+  }
+  60% {
+    transform: translateX(3px);
+  }
+  75% {
+    transform: translateX(-1px);
+  }
+}
+
+@keyframes fx-danger-pulse {
+  0%,
+  100% {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+  }
+  40% {
+    background: color-mix(in srgb, var(--danger) 28%, transparent);
+  }
+}
+
+@keyframes fx-success-line {
+  0% {
+    background: color-mix(in srgb, var(--success) 8%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--success) 40%, transparent);
+  }
+  35% {
+    background: color-mix(in srgb, var(--success) 28%, transparent);
+    box-shadow:
+      inset 3px 0 0 var(--success),
+      0 0 0 2px color-mix(in srgb, var(--success) 25%, transparent);
+  }
+  100% {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+}
+
+@keyframes fx-success-soft {
+  0% {
+    background: color-mix(in srgb, var(--success) 6%, transparent);
+  }
+  40% {
+    background: color-mix(in srgb, var(--success) 20%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@keyframes fx-cell-slide {
+  0% {
+    opacity: 0.35;
+    transform: translateY(6px);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fx-complete-banner {
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.03) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body,
+  body.game-won {
+    transition: none;
+  }
+
+  .game-progress-fill {
+    transition: width 200ms linear;
+  }
+
+  .code-line.predict-line-error,
+  .field-error.fx-error-shake,
+  input.field-error.fx-error-shake,
+  .change-row.field-error.fx-error-shake,
+  .field.field-error.fx-error-shake {
+    animation: none;
+  }
+
+  .code-line.current-line.fx-success-line {
+    animation: none;
+    background: color-mix(in srgb, var(--success) 18%, transparent);
+    box-shadow: inset 3px 0 0 var(--success);
+  }
+
+  .stack-list li.current.fx-success-stack,
+  .trace-table.active.fx-success-table,
+  .game-io.fx-success-io,
+  .complete-message.fx-complete-banner {
+    animation: none;
+  }
+
+  .trace-table td.current-cell.fx-success-cell,
+  .trace-table td.fx-success-cell {
+    animation: fx-cell-slide 280ms ease;
+  }
+
+  .tutorial-target,
+  .tutorial-target-line {
+    animation: none;
+  }
+
+  .tutorial-target {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
 }
 
 .sr-only {

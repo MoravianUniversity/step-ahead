@@ -1,5 +1,6 @@
 id: double-and-branch
 title: Double and branch
+order: 10
 description: Predict each step: advancing through lines, calling double, returning, and taking a branch.
 
 [random]

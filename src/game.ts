@@ -1,4 +1,5 @@
 import "./game.css";
+import confetti from "canvas-confetti";
 import {
   buildGameTimeline,
   classifyTransition,
@@ -9,7 +10,32 @@ import {
   type FieldFeedback,
   type GameTimelineEntry,
   type PredictionGuess,
+  type PredictionKind,
 } from "./game/engine";
+import {
+  DIFFICULTY_LABELS,
+  SELECTABLE_DIFFICULTIES,
+  TUTORIAL_PROBLEM_ID,
+  assistsLikeEasy,
+  callParamScaffold,
+  describeNextAction,
+  formatKindMismatch,
+  formatNoAssignNeeded,
+  formatWrongAssignTarget,
+  initialTipsForPopover,
+  isTutorial,
+  joinReturnValueSlots,
+  loadDifficulty,
+  saveDifficulty,
+  splitReturnValueSlots,
+  tipText,
+  tipsForPopover,
+  tipsToRevealOnFeedback,
+  type Difficulty,
+  type PopoverKind,
+  type TipGuessContext,
+  type TipId,
+} from "./game/difficulty";
 import { GAME_PROBLEMS, type GameFunctionDef, type GameProblem, type ProblemTemplate } from "./game/problems";
 import {
   expandProblemTemplate,
@@ -35,7 +61,7 @@ if (import.meta.env.DEV) {
 app.innerHTML = `
   <div class="game-page">
     <header class="game-hero">
-      <p class="game-brand">Trace Practice</p>
+      <p class="game-brand">Step Ahead</p>
       <h1>What happens next?</h1>
       <p class="game-lede predict-hint" id="predict-hint">
         Predict each step by clicking in the code or output.
@@ -53,14 +79,34 @@ app.innerHTML = `
         <span>Problem</span>
         <select id="problem-select"></select>
       </label>
+      <label class="difficulty-picker">
+        <span>Difficulty</span>
+        <select id="difficulty-select"></select>
+      </label>
       <p class="problem-desc" id="problem-desc"></p>
-      <button type="button" id="start" disabled>Start</button>
+      <div class="setup-actions">
+        <button type="button" id="start" disabled>Start</button>
+        <a href="#tutorial" class="tutorial-link" id="tutorial-link">Play tutorial</a>
+      </div>
     </section>
 
     <section class="game-board" id="board" hidden aria-label="Prediction game">
       <div class="game-toolbar">
         <p class="game-status" id="status" aria-live="polite">Loading Python…</p>
-        <p class="game-progress" id="progress">Step 0 / 0</p>
+        <div class="game-progress" id="progress" aria-label="Progress">
+          <div class="game-progress-meta">
+            <span id="progress-label">Transition 0 / 0</span>
+            <span id="progress-attempts">Attempts 0</span>
+          </div>
+          <div class="game-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" id="progress-bar">
+            <div class="game-progress-fill" id="progress-fill"></div>
+          </div>
+        </div>
+        <p class="tutorial-badge toolbar-difficulty" id="tutorial-badge" hidden>Tutorial</p>
+        <label class="difficulty-picker toolbar-difficulty" id="toolbar-difficulty-wrap">
+          <span>Difficulty</span>
+          <select id="difficulty-select-board"></select>
+        </label>
         <button type="button" id="restart" class="ghost">Change problem</button>
       </div>
 
@@ -94,11 +140,23 @@ app.innerHTML = `
 const setupEl = document.querySelector<HTMLElement>("#setup")!;
 const boardEl = document.querySelector<HTMLElement>("#board")!;
 const problemSelect = document.querySelector<HTMLSelectElement>("#problem-select")!;
+const difficultySelect = document.querySelector<HTMLSelectElement>("#difficulty-select")!;
+const difficultySelectBoard = document.querySelector<HTMLSelectElement>(
+  "#difficulty-select-board",
+)!;
+const toolbarDifficultyWrap = document.querySelector<HTMLElement>(
+  "#toolbar-difficulty-wrap",
+)!;
+const tutorialBadge = document.querySelector<HTMLElement>("#tutorial-badge")!;
+const tutorialLink = document.querySelector<HTMLAnchorElement>("#tutorial-link")!;
 const problemDesc = document.querySelector<HTMLElement>("#problem-desc")!;
 const startBtn = document.querySelector<HTMLButtonElement>("#start")!;
 const restartBtn = document.querySelector<HTMLButtonElement>("#restart")!;
 const statusEl = document.querySelector<HTMLElement>("#status")!;
-const progressEl = document.querySelector<HTMLElement>("#progress")!;
+const progressLabelEl = document.querySelector<HTMLElement>("#progress-label")!;
+const progressAttemptsEl = document.querySelector<HTMLElement>("#progress-attempts")!;
+const progressBarEl = document.querySelector<HTMLElement>("#progress-bar")!;
+const progressFillEl = document.querySelector<HTMLElement>("#progress-fill")!;
 const codeView = document.querySelector<HTMLElement>("#code-view")!;
 const codeViewContent = document.querySelector<HTMLElement>("#code-view-content")!;
 const stackList = document.querySelector<HTMLUListElement>("#stack-list")!;
@@ -138,7 +196,12 @@ type PendingPrediction =
 
 let ready = false;
 let running = false;
-let selectedTemplate: ProblemTemplate = GAME_PROBLEMS[0]!;
+let difficulty: Difficulty = loadDifficulty();
+/** Last dropdown difficulty — restored when leaving the tutorial link session. */
+let selectableDifficulty: "easy" | "medium" | "hard" = loadDifficulty();
+let selectedTemplate: ProblemTemplate = GAME_PROBLEMS.find(
+  (item) => item.id !== TUTORIAL_PROBLEM_ID,
+) ?? GAME_PROBLEMS[0]!;
 let problem: GameProblem = {
   id: selectedTemplate.id,
   title: selectedTemplate.title,
@@ -155,6 +218,31 @@ let attempts = 0;
 let pending: PendingPrediction | null = null;
 let stagedChanges: Array<{ name: string; value: string }> = [];
 let lineErrorTimer: number | null = null;
+let statusToneTimer: number | null = null;
+let successFxTimer: number | null = null;
+let celebrationTimer: number | null = null;
+/** Guards win celebration so re-renders do not retrigger confetti. */
+let celebrationPlayed = false;
+let celebrating = false;
+/** Tips revealed for the open popover session (Medium). */
+let revealedTips = new Set<TipId>();
+/** Expected return repr used to rebuild Easy multi-slot returns. */
+let pendingReturnExpected = "";
+
+const SUCCESS_FX_MS = 850;
+const ERROR_FX_MS = 900;
+const CELEBRATION_MS = 2800;
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function replayAnimationClass(el: HTMLElement, className: string): void {
+  el.classList.remove(className);
+  // Force reflow so repeated wrong answers retrigger the same animation.
+  void el.offsetWidth;
+  el.classList.add(className);
+}
 
 const pendingLiterals = new Map<
   string,
@@ -180,12 +268,133 @@ function post(msg: MainToWorker): void {
   worker.postMessage(msg);
 }
 
-function setStatus(text: string): void {
+type StatusTone = "neutral" | "success" | "error" | "complete";
+
+function setStatus(text: string, tone: StatusTone = "neutral"): void {
   statusEl.textContent = text;
+  statusEl.classList.remove("is-success", "is-error", "is-complete");
+  if (statusToneTimer != null) {
+    window.clearTimeout(statusToneTimer);
+    statusToneTimer = null;
+  }
+  if (tone === "neutral") return;
+  statusEl.classList.add(
+    tone === "success"
+      ? "is-success"
+      : tone === "error"
+        ? "is-error"
+        : "is-complete",
+  );
+  if (tone === "success" || tone === "error") {
+    statusToneTimer = window.setTimeout(() => {
+      statusEl.classList.remove("is-success", "is-error");
+      statusToneTimer = null;
+    }, tone === "success" ? SUCCESS_FX_MS : ERROR_FX_MS);
+  }
 }
 
 function announce(text: string): void {
   announceEl.textContent = text;
+}
+
+function clearWinState(): void {
+  celebrationPlayed = false;
+  celebrating = false;
+  if (celebrationTimer != null) {
+    window.clearTimeout(celebrationTimer);
+    celebrationTimer = null;
+  }
+  document.body.classList.remove("game-won");
+  boardEl.classList.remove("is-celebrating");
+  boardEl.removeAttribute("aria-busy");
+  boardEl.inert = false;
+  completeMessage.classList.remove("fx-complete-banner");
+}
+
+function fireWinConfetti(): void {
+  if (prefersReducedMotion()) return;
+  const colors = ["#0b8f7f", "#2a9d4a", "#c47a00", "#7ef0d8", "#d64545"];
+  confetti({
+    particleCount: 110,
+    spread: 70,
+    startVelocity: 38,
+    origin: { y: 0.62 },
+    colors,
+  });
+  window.setTimeout(() => {
+    confetti({
+      particleCount: 55,
+      spread: 95,
+      startVelocity: 28,
+      origin: { y: 0.7 },
+      colors,
+    });
+  }, 280);
+}
+
+function celebrateWin(): void {
+  if (celebrationPlayed) return;
+  celebrationPlayed = true;
+  celebrating = true;
+  document.body.classList.add("game-won");
+  boardEl.classList.add("is-celebrating");
+  boardEl.setAttribute("aria-busy", "true");
+  boardEl.inert = true;
+  completeMessage.classList.remove("fx-complete-banner");
+  void completeMessage.offsetWidth;
+  completeMessage.classList.add("fx-complete-banner");
+  fireWinConfetti();
+  if (celebrationTimer != null) window.clearTimeout(celebrationTimer);
+  celebrationTimer = window.setTimeout(() => {
+    celebrating = false;
+    boardEl.classList.remove("is-celebrating");
+    boardEl.removeAttribute("aria-busy");
+    boardEl.inert = false;
+    celebrationTimer = null;
+  }, CELEBRATION_MS);
+}
+
+function applySuccessFlourish(): void {
+  if (successFxTimer != null) {
+    window.clearTimeout(successFxTimer);
+    successFxTimer = null;
+  }
+  const mark = () => {
+    const line = codeViewContent.querySelector<HTMLElement>(".code-line.current-line");
+    line?.classList.add("fx-success-line");
+    const stack = stackList.querySelector<HTMLElement>("li.current");
+    stack?.classList.add("fx-success-stack");
+    const table = tablesEl.querySelector<HTMLElement>(".trace-table.active");
+    table?.classList.add("fx-success-table");
+    for (const cell of tablesEl.querySelectorAll<HTMLElement>("td.current-cell")) {
+      cell.classList.add("fx-success-cell");
+    }
+    const current = currentEntry();
+    if (current?.gameEvent === "output") {
+      ioEl.classList.add("fx-success-io");
+    }
+    successFxTimer = window.setTimeout(() => {
+      line?.classList.remove("fx-success-line");
+      stack?.classList.remove("fx-success-stack");
+      table?.classList.remove("fx-success-table");
+      ioEl.classList.remove("fx-success-io");
+      for (const cell of tablesEl.querySelectorAll(".fx-success-cell")) {
+        cell.classList.remove("fx-success-cell");
+      }
+      successFxTimer = null;
+    }, SUCCESS_FX_MS);
+  };
+  requestAnimationFrame(() => requestAnimationFrame(mark));
+}
+
+function shakeErrorFields(root: ParentNode = popover): void {
+  const targets = root.querySelectorAll<HTMLElement>(
+    ".field-error, input.field-error, .change-row.field-error",
+  );
+  for (const el of targets) {
+    if (prefersReducedMotion()) continue;
+    replayAnimationClass(el, "fx-error-shake");
+  }
 }
 
 function gameFinished(): boolean {
@@ -193,7 +402,7 @@ function gameFinished(): boolean {
 }
 
 function canPredict(): boolean {
-  return timeline.length > 0 && !gameFinished() && !running;
+  return timeline.length > 0 && !gameFinished() && !running && !celebrating;
 }
 
 function formatCallLabel(table: TraceTable): string {
@@ -248,18 +457,293 @@ async function valuesEqual(
   return expected === guess;
 }
 
+function catalogProblems(): ProblemTemplate[] {
+  return GAME_PROBLEMS.filter((item) => item.id !== TUTORIAL_PROBLEM_ID);
+}
+
+function tutorialTemplate(): ProblemTemplate | undefined {
+  return GAME_PROBLEMS.find((item) => item.id === TUTORIAL_PROBLEM_ID);
+}
+
 function syncProblemPicker(): void {
+  const catalog = catalogProblems();
   problemSelect.replaceChildren();
-  for (const item of GAME_PROBLEMS) {
+  for (const item of catalog) {
     const option = document.createElement("option");
     option.value = item.id;
     option.textContent = item.title;
     problemSelect.appendChild(option);
   }
   selectedTemplate =
-    GAME_PROBLEMS.find((item) => item.id === problemSelect.value) ??
-    GAME_PROBLEMS[0]!;
-  problemDesc.textContent = selectedTemplate.description;
+    catalog.find((item) => item.id === problemSelect.value) ?? catalog[0]!;
+  if (selectedTemplate) {
+    problemSelect.value = selectedTemplate.id;
+    problemDesc.textContent = selectedTemplate.description;
+  }
+}
+
+function fillDifficultySelect(select: HTMLSelectElement): void {
+  select.replaceChildren();
+  for (const level of SELECTABLE_DIFFICULTIES) {
+    const option = document.createElement("option");
+    option.value = level;
+    option.textContent = DIFFICULTY_LABELS[level];
+    select.appendChild(option);
+  }
+  select.value = selectableDifficulty;
+}
+
+function syncDifficultySelects(): void {
+  difficultySelect.value = selectableDifficulty;
+  difficultySelectBoard.value = selectableDifficulty;
+}
+
+function syncTutorialChrome(): void {
+  const tutorial = isTutorial(difficulty);
+  tutorialBadge.hidden = !tutorial;
+  toolbarDifficultyWrap.hidden = tutorial;
+  tutorialLink.setAttribute("aria-disabled", running && tutorial ? "true" : "false");
+}
+
+function setDifficulty(next: Difficulty): void {
+  if (difficulty === next) return;
+  difficulty = next;
+  if (next !== "tutorial") {
+    selectableDifficulty = next;
+    saveDifficulty(next);
+  }
+  syncDifficultySelects();
+  syncTutorialChrome();
+  if (
+    pending?.kind === "call" &&
+    (assistsLikeEasy(difficulty) || difficulty === "medium") &&
+    expectedCallParamNames(pending.functionName).length === 0
+  ) {
+    const keep = pending;
+    hidePopover();
+    void submitZeroArgCall(keep);
+    return;
+  }
+  if (pending && (pending.kind === "call" || pending.kind === "return")) {
+    const keep = pending;
+    buildPopover(keep);
+  } else if (pending) {
+    revealedTips = new Set(
+      initialTipsForPopover(
+        popoverKindOf(pending.kind),
+        difficulty,
+        expectedValuesForPending(pending),
+      ),
+    );
+    renderPopoverTips();
+  }
+  if (!boardEl.hidden) renderAll();
+}
+
+function exitTutorialDifficulty(): void {
+  if (!isTutorial(difficulty)) return;
+  difficulty = selectableDifficulty;
+  syncDifficultySelects();
+  syncTutorialChrome();
+}
+
+function nextExpectedKind(): PredictionKind | null {
+  const current = currentEntry();
+  const next = timeline[stepIndex + 1];
+  if (!current || !next) return null;
+  return classifyTransition(current, next);
+}
+
+function expectedCallParamNames(functionName: string): string[] {
+  const current = currentEntry();
+  const next = timeline[stepIndex + 1];
+  const after = timeline[stepIndex + 2];
+  const fallback = functionDefInfo(functionName)?.parameters ?? [];
+  if (!current || !next) return fallback;
+  const byId = tablesById();
+  const nextKind = classifyTransition(current, next);
+  if (nextKind === "call") {
+    const expected = expectedPrediction(current, next, byId);
+    if (expected.kind === "call") return Object.keys(expected.params);
+  }
+  if (
+    nextKind === "advance" &&
+    after &&
+    classifyTransition(next, after) === "call"
+  ) {
+    const expected = expectedPrediction(next, after, byId);
+    if (expected.kind === "call") return Object.keys(expected.params);
+  }
+  return fallback;
+}
+
+function expectedReturnValueRepr(): string {
+  const current = currentEntry();
+  const next = timeline[stepIndex + 1];
+  const after = timeline[stepIndex + 2];
+  const third = timeline[stepIndex + 3];
+  if (!current || !next) return "None";
+  const byId = tablesById();
+  const nextKind = classifyTransition(current, next);
+  if (nextKind === "return") {
+    const expected = expectedPrediction(current, next, byId);
+    if (expected.kind === "return") return expected.returnValue;
+  }
+  // Combo paths mirror submitReturnPrediction (advance/for-exit then return).
+  if (
+    nextKind === "advance" &&
+    after &&
+    classifyTransition(next, after) === "return"
+  ) {
+    const expected = expectedPrediction(next, after, byId);
+    if (expected.kind === "return") return expected.returnValue;
+  }
+  if (
+    nextKind === "advance" &&
+    after &&
+    third &&
+    classifyTransition(next, after) === "advance" &&
+    classifyTransition(after, third) === "return"
+  ) {
+    const expected = expectedPrediction(after, third, byId);
+    if (expected.kind === "return") return expected.returnValue;
+  }
+  return "None";
+}
+
+/** Expected stdout chunk for the upcoming output step (direct or advance+output). */
+function expectedOutputText(): string {
+  const current = currentEntry();
+  const next = timeline[stepIndex + 1];
+  const after = timeline[stepIndex + 2];
+  if (!current || !next) return "";
+  const byId = tablesById();
+  const nextKind = classifyTransition(current, next);
+  if (nextKind === "output") {
+    const expected = expectedPrediction(current, next, byId);
+    if (expected.kind === "output") return expected.output;
+  }
+  if (
+    nextKind === "advance" &&
+    after &&
+    classifyTransition(next, after) === "output"
+  ) {
+    const expected = expectedPrediction(next, after, byId);
+    if (expected.kind === "output") return expected.output;
+  }
+  return "";
+}
+
+/** True when graded output has an embedded newline (trailing print \\n ignored). */
+function outputAnswerIsMultiline(text: string): boolean {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\n$/, "");
+  return normalized.includes("\n");
+}
+
+function popoverKindOf(pendingKind: PendingPrediction["kind"]): PopoverKind {
+  return pendingKind;
+}
+
+function renderPopoverTips(): void {
+  const list = popover.querySelector(".predict-tips");
+  if (!list || !pending) return;
+  const kind = popoverKindOf(pending.kind);
+  const tips = tipsForPopover(kind, difficulty, revealedTips);
+  list.replaceChildren();
+  if (tips.length === 0) {
+    list.setAttribute("hidden", "");
+    return;
+  }
+  list.removeAttribute("hidden");
+  for (const id of tips) {
+    const item = document.createElement("p");
+    item.className = "predict-tip";
+    item.textContent = tipText(id);
+    list.appendChild(item);
+  }
+}
+
+function revealTipsFromFeedback(
+  kind: PopoverKind,
+  feedback: FieldFeedback[],
+  context: TipGuessContext = {},
+): void {
+  const toReveal = tipsToRevealOnFeedback(kind, feedback, context, difficulty);
+  for (const id of toReveal) revealedTips.add(id);
+  renderPopoverTips();
+}
+
+/** Expected value reprs for tip gating (e.g. whether a string is in the answer). */
+function expectedValuesForPending(next: PendingPrediction): string[] {
+  const current = currentEntry();
+  const step = timeline[stepIndex + 1];
+  const after = timeline[stepIndex + 2];
+  if (!current || !step) return [];
+  const byId = tablesById();
+
+  if (next.kind === "assign") {
+    if (classifyTransition(current, step) !== "advance") return [];
+    const expected = expectedPrediction(current, step, byId);
+    if (expected.kind !== "advance") return [];
+    const value = expected.changes[next.name];
+    return value != null ? [value] : Object.values(expected.changes);
+  }
+
+  if (next.kind === "call") {
+    const nextKind = classifyTransition(current, step);
+    if (nextKind === "call") {
+      const expected = expectedPrediction(current, step, byId);
+      if (expected.kind === "call") return Object.values(expected.params);
+    }
+    if (
+      nextKind === "advance" &&
+      after &&
+      classifyTransition(step, after) === "call"
+    ) {
+      const expected = expectedPrediction(step, after, byId);
+      if (expected.kind === "call") return Object.values(expected.params);
+    }
+    return [];
+  }
+
+  if (next.kind === "return") {
+    return [expectedReturnValueRepr()];
+  }
+
+  return [];
+}
+
+function tipContextFromGuess(
+  guess: PredictionGuess,
+  expected: ReturnType<typeof expectedPrediction>,
+): TipGuessContext {
+  if (guess.kind === "call" && expected.kind === "call") {
+    return {
+      values: guess.params.map((row) => row.value),
+      expectedValues: Object.values(expected.params),
+    };
+  }
+  if (guess.kind === "return" && expected.kind === "return") {
+    return {
+      values: [guess.returnValue],
+      expectedValues: [expected.returnValue],
+    };
+  }
+  if (guess.kind === "output" && expected.kind === "output") {
+    return {
+      values: [guess.output],
+      expectedValues: [expected.output],
+    };
+  }
+  if (guess.kind === "advance" && expected.kind === "advance") {
+    return {
+      values: guess.changes.map((row) => row.value),
+      expectedValues: guess.changes.map(
+        (row) => expected.changes[row.name.trim()] ?? "",
+      ),
+    };
+  }
+  return {};
 }
 
 function escapeRegExp(text: string): string {
@@ -522,26 +1006,47 @@ function forLoopExitAdvance(): {
   return { forLine: next.line, afterLine: after.line, afterEntry: after };
 }
 
-function matchAssignableName(
-  text: string,
-): { indent: string; name: string; nameStart: number; nameEnd: number } | null {
+type AssignableName = {
+  name: string;
+  nameStart: number;
+  nameEnd: number;
+};
+
+/** Parse comma-separated simple names (e.g. `x, y`) into name spans. */
+function parseNameList(listStart: number, listText: string): AssignableName[] {
+  const names: AssignableName[] = [];
+  const pattern = /[A-Za-z_]\w*/g;
+  for (const match of listText.matchAll(pattern)) {
+    const name = match[0]!;
+    const nameStart = listStart + (match.index ?? 0);
+    names.push({ name, nameStart, nameEnd: nameStart + name.length });
+  }
+  return names;
+}
+
+/**
+ * Names on the left of `=` / augmented assign, or the `for` target list.
+ * Supports multi-target forms like `vx, vy = …` and `for a, b in …`.
+ */
+function matchAssignableNames(text: string): AssignableName[] {
   const assign = text.match(
-    /^(\s*)([A-Za-z_]\w*)\s*(?:\+=|-=|\*=|\/=|\/\/=|%=|\*\*=|&=|\|=|\^=|>>=|<<=|@=|=(?!=))/,
+    /^(\s*)([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*(?:\+=|-=|\*=|\/=|\/\/=|%=|\*\*=|&=|\|=|\^=|>>=|<<=|@=|=(?!=))/,
   );
   if (assign) {
     const indent = assign[1] ?? "";
-    const name = assign[2]!;
-    const nameStart = indent.length;
-    return { indent, name, nameStart, nameEnd: nameStart + name.length };
+    const listText = assign[2]!;
+    return parseNameList(indent.length, listText);
   }
-  const forLoop = text.match(/^(\s*)(?:async\s+)?for\s+([A-Za-z_]\w*)\s+in\b/);
+  const forLoop = text.match(
+    /^(\s*)(?:async\s+)?for\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+in\b/,
+  );
   if (forLoop) {
-    const indent = forLoop[1] ?? "";
-    const name = forLoop[2]!;
-    const nameStart = text.indexOf(name, indent.length);
-    return { indent, name, nameStart, nameEnd: nameStart + name.length };
+    const listText = forLoop[2]!;
+    const listStart = text.indexOf(listText, (forLoop[1] ?? "").length);
+    if (listStart < 0) return [];
+    return parseNameList(listStart, listText);
   }
-  return null;
+  return [];
 }
 
 function appendTokenizedCode(
@@ -712,17 +1217,21 @@ function renderCode(): void {
     textEl.className = "code-line-text";
     const displayText = text || " ";
     const ranges = callRangesForLine(lineNumber, displayText.length);
-    const lhs = matchAssignableName(displayText);
+    const lhsNames = matchAssignableNames(displayText);
     let contentStart = 0;
-    if (lhs && interactive) {
-      if (lhs.nameStart > 0) textEl.append(displayText.slice(0, lhs.nameStart));
-      const assign = document.createElement("span");
-      assign.className = "predict-assign";
-      assign.dataset.predict = "assign";
-      assign.dataset.varName = lhs.name;
-      assign.textContent = lhs.name;
-      textEl.appendChild(assign);
-      contentStart = lhs.nameEnd;
+    if (lhsNames.length > 0 && interactive) {
+      for (const lhs of lhsNames) {
+        if (lhs.nameStart > contentStart) {
+          textEl.append(displayText.slice(contentStart, lhs.nameStart));
+        }
+        const assign = document.createElement("span");
+        assign.className = "predict-assign";
+        assign.dataset.predict = "assign";
+        assign.dataset.varName = lhs.name;
+        assign.textContent = lhs.name;
+        textEl.appendChild(assign);
+        contentStart = lhs.nameEnd;
+      }
     }
     const allowReturn = interactive && returnLines.has(lineNumber);
     appendCodeWithCalls(
@@ -915,14 +1424,18 @@ function renderTraceTable(
             if (!text) {
               stagedChanges = stagedChanges.filter((entry) => entry.name !== name);
               renderStackAndTables();
+              applyTutorialGuidance();
               return;
             }
             const check = await checkStagedAssignValue(name, text);
             if (!check.ok) {
               input.classList.add("field-error");
               input.title = check.message;
+              if (!prefersReducedMotion()) {
+                replayAnimationClass(input, "fx-error-shake");
+              }
               announce(check.message);
-              setStatus("Incorrect — try again");
+              setStatus("Incorrect — try again", "error");
               recordFailedAttempt();
               // Restore the previously staged correct value.
               const previous = stagedChanges.find((entry) => entry.name === name);
@@ -934,6 +1447,7 @@ function renderTraceTable(
             input.title = "";
             stageChange(name, text, false);
             renderStackAndTables();
+            applyTutorialGuidance();
           })();
         });
         const remove = document.createElement("button");
@@ -946,6 +1460,7 @@ function renderTraceTable(
           event.stopPropagation();
           stagedChanges = stagedChanges.filter((entry) => entry.name !== name);
           renderStackAndTables();
+          applyTutorialGuidance();
         });
         editor.append(input, remove);
         td.appendChild(editor);
@@ -1023,7 +1538,18 @@ function renderIo(): void {
 function renderProgress(): void {
   const total = Math.max(0, timeline.length - 1);
   const done = Math.min(stepIndex, total);
-  progressEl.textContent = `Transition ${done} / ${total} · Attempts ${attempts}`;
+  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+  progressLabelEl.textContent = `Transition ${done} / ${total}`;
+  progressAttemptsEl.textContent = `Attempts ${attempts}`;
+  progressFillEl.style.width = `${pct}%`;
+  boardEl.dataset.progress = String(pct);
+  progressBarEl.setAttribute("aria-valuemin", "0");
+  progressBarEl.setAttribute("aria-valuemax", String(total));
+  progressBarEl.setAttribute("aria-valuenow", String(done));
+  progressBarEl.setAttribute(
+    "aria-valuetext",
+    `Transition ${done} of ${total}, ${attempts} attempts`,
+  );
 }
 
 function valueInput(
@@ -1077,16 +1603,27 @@ function clearPopoverFeedback(): void {
   popover
     .querySelectorAll<HTMLElement>("[data-field]")
     .forEach((el) => {
-      el.classList.remove("field-error", "field-warning");
+      el.classList.remove("field-error", "field-warning", "fx-error-shake");
     });
   const list = popover.querySelector(".popover-feedback");
   if (list) list.replaceChildren();
 }
 
-function showPopoverFeedback(items: FieldFeedback[]): void {
+function showPopoverFeedback(
+  items: FieldFeedback[],
+  tipContext: TipGuessContext = {},
+): void {
   clearPopoverFeedback();
   const list = popover.querySelector(".popover-feedback");
-  if (!list) return;
+  const hasError = items.some((item) => item.level === "error");
+  if (!list) {
+    const detail = items[0]?.message;
+    if (detail) {
+      announce(detail);
+      if (hasError) setStatus("Incorrect — try again", "error");
+    }
+    return;
+  }
   for (const item of items) {
     const row = document.createElement("p");
     row.className = item.level;
@@ -1100,10 +1637,29 @@ function showPopoverFeedback(items: FieldFeedback[]): void {
     if (!el) continue;
     el.classList.add(item.level === "warning" ? "field-warning" : "field-error");
   }
+  if (hasError) {
+    setStatus("Incorrect — try again", "error");
+    shakeErrorFields();
+  }
+  if (pending) {
+    const needsQuotes = items.some((item) =>
+      item.message.toLowerCase().includes("quotes"),
+    );
+    const notLiteral = items.some((item) =>
+      item.message.toLowerCase().includes("not a valid python literal"),
+    );
+    revealTipsFromFeedback(popoverKindOf(pending.kind), items, {
+      ...tipContext,
+      needsQuotes: tipContext.needsQuotes ?? needsQuotes,
+      notLiteral: tipContext.notLiteral ?? notLiteral,
+    });
+  }
 }
 
 function hidePopover(): void {
   pending = null;
+  pendingReturnExpected = "";
+  revealedTips = new Set();
   popover.hidden = true;
   popover.replaceChildren();
 }
@@ -1113,15 +1669,15 @@ function flashLineError(line: number, message: string): void {
     `.code-line[data-line="${line}"]`,
   );
   if (lineEl) {
-    lineEl.classList.add("predict-line-error");
     if (lineErrorTimer != null) window.clearTimeout(lineErrorTimer);
+    replayAnimationClass(lineEl, "predict-line-error");
     lineErrorTimer = window.setTimeout(() => {
       lineEl.classList.remove("predict-line-error");
       lineErrorTimer = null;
-    }, 1600);
+    }, ERROR_FX_MS);
   }
   announce(message);
-  setStatus("Incorrect — try again");
+  setStatus("Incorrect — try again", "error");
 }
 
 function clearStagedChanges(): void {
@@ -1146,24 +1702,27 @@ async function checkStagedAssignValue(
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const current = currentEntry();
   const next = timeline[stepIndex + 1];
-  if (!current || !next || classifyTransition(current, next) !== "advance") {
+  const kind = current && next ? classifyTransition(current, next) : null;
+  if (!current || !next || kind !== "advance") {
     return {
       ok: false,
-      message: "No variable update is needed for the next step",
+      message: kind
+        ? formatNoAssignNeeded(kind, difficulty)
+        : "No variable update is needed for the next step",
     };
   }
   const expected = expectedPrediction(current, next, tablesById());
   if (expected.kind !== "advance") {
     return {
       ok: false,
-      message: "No variable update is needed for the next step",
+      message: formatNoAssignNeeded(expected.kind, difficulty),
     };
   }
   const expectedValue = expected.changes[name];
   if (expectedValue == null) {
     return {
       ok: false,
-      message: `“${name}” does not change on the next step`,
+      message: formatWrongAssignTarget(name, expected.changes, difficulty),
     };
   }
   if (!(await valuesEqual(expectedValue, value))) {
@@ -1213,8 +1772,181 @@ function enablePopoverDrag(handle: HTMLElement): void {
   });
 }
 
+function buildCallParamRows(
+  rows: HTMLElement,
+  functionName: string,
+): void {
+  const paramNames = expectedCallParamNames(functionName);
+  const scaffold = callParamScaffold(difficulty, paramNames);
+
+  const reindex = () => {
+    [...rows.children].forEach((child, i) => {
+      const row = child as HTMLElement;
+      row.dataset.field = `param:${i}`;
+      const nameInput = row.querySelector<HTMLInputElement>(
+        'input[data-role="param-name"]',
+      );
+      const valInput = row.querySelector<HTMLInputElement>(
+        'input[data-role="param-value"]',
+      );
+      if (nameInput) nameInput.name = `param-name-${i}`;
+      if (valInput) {
+        valInput.name = `param-value-${i}`;
+        valInput.dataset.field = `param:${i}:value`;
+      }
+    });
+  };
+
+  const appendFixedRow = (name: string, lockedName: boolean) => {
+    const index = rows.children.length;
+    const row = document.createElement("div");
+    row.className = "param-row param-row-fixed param-row-solid";
+    row.dataset.field = `param:${index}`;
+    if (lockedName) {
+      const label = document.createElement("span");
+      label.className = "param-name-locked";
+      label.textContent = name;
+      row.dataset.paramName = name;
+      const valField = valueInput(
+        `param-value-${index}`,
+        `param:${index}:value`,
+      );
+      valField.dataset.role = "param-value";
+      valField.placeholder = "value";
+      row.append(label, valField);
+    } else {
+      const nameField = document.createElement("input");
+      nameField.type = "text";
+      nameField.name = `param-name-${index}`;
+      nameField.dataset.role = "param-name";
+      nameField.placeholder = "parameter";
+      nameField.autocomplete = "off";
+      nameField.spellcheck = false;
+      const valField = valueInput(
+        `param-value-${index}`,
+        `param:${index}:value`,
+      );
+      valField.dataset.role = "param-value";
+      valField.placeholder = "value";
+      row.append(nameField, valField);
+    }
+    rows.appendChild(row);
+    reindex();
+  };
+
+  if (scaffold.mode === "named-locked") {
+    for (const name of scaffold.names) appendFixedRow(name, true);
+    return;
+  }
+
+  if (scaffold.mode === "fixed-named") {
+    for (let i = 0; i < scaffold.rowCount; i++) appendFixedRow("", false);
+    return;
+  }
+
+  const rowHasContent = (row: HTMLElement) =>
+    [...row.querySelectorAll<HTMLInputElement>('input[type="text"]')].some(
+      (input) => input.value.trim(),
+    );
+
+  const addGhostRow = () => {
+    const index = rows.children.length;
+    const row = document.createElement("div");
+    row.className = "param-row param-row-ghost";
+    row.dataset.field = `param:${index}`;
+    const nameField = document.createElement("input");
+    nameField.type = "text";
+    nameField.name = `param-name-${index}`;
+    nameField.dataset.role = "param-name";
+    nameField.placeholder = "parameter";
+    nameField.autocomplete = "off";
+    nameField.spellcheck = false;
+    const valField = valueInput(
+      `param-value-${index}`,
+      `param:${index}:value`,
+    );
+    valField.dataset.role = "param-value";
+    valField.placeholder = "value";
+    const onEdit = () => {
+      const filled = rowHasContent(row);
+      row.classList.toggle("param-row-ghost", !filled);
+      row.classList.toggle("param-row-solid", filled);
+      const last = rows.lastElementChild as HTMLElement | null;
+      if (last && rowHasContent(last)) addGhostRow();
+      [...rows.querySelectorAll<HTMLElement>(".param-row")].forEach(
+        (entry, _i, list) => {
+          if (entry === list.at(-1)) return;
+          if (!rowHasContent(entry)) entry.remove();
+        },
+      );
+      reindex();
+    };
+    nameField.addEventListener("input", onEdit);
+    valField.addEventListener("input", onEdit);
+    row.append(nameField, valField);
+    rows.appendChild(row);
+    reindex();
+  };
+
+  addGhostRow();
+}
+
+function buildReturnFields(fields: HTMLElement): void {
+  pendingReturnExpected = expectedReturnValueRepr();
+  if (!assistsLikeEasy(difficulty)) {
+    const row = document.createElement("div");
+    row.className = "field";
+    row.dataset.field = "returnValue";
+    const input = valueInput("returnValue", "returnValue");
+    input.placeholder = "None if empty";
+    row.append(input);
+    fields.appendChild(row);
+    return;
+  }
+
+  const slots = splitReturnValueSlots(pendingReturnExpected);
+  const slotCount = Math.max(slots.length, 1);
+  const wrap = document.createElement("div");
+  wrap.className = "return-slots";
+  wrap.dataset.field = "returnValue";
+  for (let i = 0; i < slotCount; i++) {
+    const row = document.createElement("div");
+    row.className = "field";
+    row.dataset.field = `returnValue:${i}`;
+    const input = valueInput(`returnValue-${i}`, `returnValue:${i}`);
+    input.dataset.role = "return-slot";
+    input.placeholder = slotCount === 1 ? "None if empty" : `value ${i + 1}`;
+    row.append(input);
+    wrap.appendChild(row);
+  }
+  fields.appendChild(wrap);
+}
+
+function readReturnValueFromPopover(): string {
+  if (assistsLikeEasy(difficulty)) {
+    const slots = [
+      ...popover.querySelectorAll<HTMLInputElement>(
+        'input[data-role="return-slot"]',
+      ),
+    ].map((input) => input.value);
+    if (slots.every((value) => !value.trim())) return "";
+    return joinReturnValueSlots(slots, pendingReturnExpected);
+  }
+  return (
+    popover.querySelector<HTMLInputElement>('input[name="returnValue"]')
+      ?.value ?? ""
+  );
+}
+
 function buildPopover(next: PendingPrediction): void {
   pending = next;
+  revealedTips = new Set(
+    initialTipsForPopover(
+      popoverKindOf(next.kind),
+      difficulty,
+      expectedValuesForPending(next),
+    ),
+  );
   hideCallTooltip();
   popover.replaceChildren();
 
@@ -1226,6 +1958,10 @@ function buildPopover(next: PendingPrediction): void {
 
   const fields = document.createElement("div");
   fields.className = "predict-popover-fields";
+
+  const tips = document.createElement("div");
+  tips.className = "predict-tips";
+  tips.setAttribute("hidden", "");
 
   const actions = document.createElement("div");
   actions.className = "predict-popover-actions";
@@ -1259,91 +1995,47 @@ function buildPopover(next: PendingPrediction): void {
     const rows = document.createElement("div");
     rows.className = "param-rows";
     rows.dataset.field = "params";
-
-    const rowHasContent = (row: HTMLElement) =>
-      [...row.querySelectorAll<HTMLInputElement>('input[type="text"]')].some(
-        (input) => input.value.trim(),
-      );
-
-    const reindex = () => {
-      [...rows.children].forEach((child, i) => {
-        const row = child as HTMLElement;
-        row.dataset.field = `param:${i}`;
-        const inputs = [
-          ...row.querySelectorAll<HTMLInputElement>('input[type="text"]'),
-        ];
-        if (inputs[0]) inputs[0].name = `param-name-${i}`;
-        if (inputs[1]) {
-          inputs[1].name = `param-value-${i}`;
-          inputs[1].dataset.field = `param:${i}:value`;
-        }
-      });
-    };
-
-    const addRow = () => {
-      const index = rows.children.length;
-      const row = document.createElement("div");
-      row.className = "param-row param-row-ghost";
-      row.dataset.field = `param:${index}`;
-      const nameField = document.createElement("input");
-      nameField.type = "text";
-      nameField.name = `param-name-${index}`;
-      nameField.placeholder = "parameter";
-      nameField.autocomplete = "off";
-      nameField.spellcheck = false;
-      const valField = valueInput(
-        `param-value-${index}`,
-        `param:${index}:value`,
-      );
-      valField.placeholder = "value";
-      const onEdit = () => {
-        const filled = rowHasContent(row);
-        row.classList.toggle("param-row-ghost", !filled);
-        row.classList.toggle("param-row-solid", filled);
-        const last = rows.lastElementChild as HTMLElement | null;
-        if (last && rowHasContent(last)) addRow();
-        // Drop empty rows that aren't the trailing ghost.
-        [...rows.querySelectorAll<HTMLElement>(".param-row")].forEach(
-          (entry, _i, list) => {
-            if (entry === list.at(-1)) return;
-            if (!rowHasContent(entry)) entry.remove();
-          },
-        );
-        reindex();
-      };
-      nameField.addEventListener("input", onEdit);
-      valField.addEventListener("input", onEdit);
-      row.append(nameField, valField);
-      rows.appendChild(row);
-      reindex();
-    };
-
-    addRow();
+    buildCallParamRows(rows, next.functionName);
     fields.appendChild(rows);
   } else if (next.kind === "return") {
     description.textContent = "Return";
-    const row = document.createElement("div");
-    row.className = "field";
-    row.dataset.field = "returnValue";
-    const input = valueInput("returnValue", "returnValue");
-    input.placeholder = "return value";
-    row.append(input);
-    fields.appendChild(row);
+    buildReturnFields(fields);
   } else {
     description.textContent = "Produce output";
     const row = document.createElement("div");
     row.className = "field";
     row.dataset.field = "output";
-    const textarea = document.createElement("textarea");
-    textarea.name = "output";
-    textarea.rows = 2;
-    textarea.placeholder = "Exact output";
-    textarea.spellcheck = false;
-    row.append(textarea);
+    const multiline = outputAnswerIsMultiline(expectedOutputText());
+    if (multiline) {
+      const textarea = document.createElement("textarea");
+      textarea.name = "output";
+      textarea.rows = 3;
+      textarea.placeholder = "Exact output";
+      textarea.spellcheck = false;
+      textarea.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+        event.preventDefault();
+        void submitPending();
+      });
+      row.append(textarea);
+      submit.title = "Check prediction (Ctrl+Enter)";
+      submit.setAttribute(
+        "aria-label",
+        "Check prediction (Control Enter)",
+      );
+    } else {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.name = "output";
+      input.placeholder = "Exact output";
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      row.append(input);
+    }
     fields.appendChild(row);
   }
 
-  form.append(description, fields, actions, feedback);
+  form.append(description, fields, tips, actions, feedback);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     await submitPending();
@@ -1351,6 +2043,7 @@ function buildPopover(next: PendingPrediction): void {
   popover.appendChild(form);
   enablePopoverDrag(description);
   positionPopover(next.anchor);
+  renderPopoverTips();
   const firstInput = popover.querySelector<HTMLElement>("input, textarea");
   firstInput?.focus();
 }
@@ -1362,26 +2055,32 @@ function readGuessFromPopover(): PredictionGuess | null {
     const rows = [...popover.querySelectorAll<HTMLElement>(".param-row")];
     const params = rows
       .map((row) => {
-        const inputs = [
-          ...row.querySelectorAll<HTMLInputElement>('input[type="text"]'),
-        ];
+        const locked = row.dataset.paramName;
+        const nameInput = row.querySelector<HTMLInputElement>(
+          'input[data-role="param-name"]',
+        );
+        const valueInputEl = row.querySelector<HTMLInputElement>(
+          'input[data-role="param-value"]',
+        );
         return {
-          name: inputs[0]?.value ?? "",
-          value: inputs[1]?.value ?? "",
+          name: locked ?? nameInput?.value ?? "",
+          value: valueInputEl?.value ?? "",
         };
       })
       .filter((row) => row.name.trim() || row.value.trim());
     return { kind: "call", line: pending.line, params };
   }
   if (pending.kind === "return") {
-    const returnValue =
-      popover.querySelector<HTMLInputElement>('input[name="returnValue"]')
-        ?.value ?? "";
-    return { kind: "return", line: pending.line, returnValue };
+    return {
+      kind: "return",
+      line: pending.line,
+      returnValue: readReturnValueFromPopover(),
+    };
   }
   const output =
-    popover.querySelector<HTMLTextAreaElement>('textarea[name="output"]')
-      ?.value ?? "";
+    popover.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+      '[name="output"]',
+    )?.value ?? "";
   return { kind: "output", output };
 }
 
@@ -1479,15 +2178,18 @@ async function evaluateGuess(
       if (exp != null) pairs.push([exp, row.value]);
     }
   } else if (expected.kind === "return" && guess.kind === "return") {
-    pairs.push([expected.returnValue, guess.returnValue]);
+    pairs.push([expected.returnValue, guess.returnValue.trim() || "None"]);
   }
   await Promise.all(
     pairs.map(async ([a, b]) => {
       cache.set(keyFor(a, b), await valuesEqual(a, b));
     }),
   );
-  return gradePrediction(expected, guess, (a, b) =>
-    cache.get(keyFor(a, b)) ?? a === b,
+  return gradePrediction(
+    expected,
+    guess,
+    (a, b) => cache.get(keyFor(a, b)) ?? a === b,
+    difficulty,
   );
 }
 
@@ -1496,9 +2198,11 @@ async function applySuccessfulGuesses(steps: number, message: string): Promise<v
   hidePopover();
   clearStagedChanges();
   stepIndex += steps;
-  setStatus("Correct");
+  setStatus("Correct", "success");
   announce(message);
   renderAll();
+  if (!gameFinished()) applySuccessFlourish();
+  await tryAutoAdvanceAfterCallOnlyLine();
 }
 
 function stagedAdvanceGuess(line: number): PredictionGuess {
@@ -1542,6 +2246,29 @@ async function tryAutoAdvance(options?: {
   return true;
 }
 
+/**
+ * After the last call (or print output) on a line with no assignments, skip the
+ * empty "click next line" advance.
+ */
+async function tryAutoAdvanceAfterCallOnlyLine(): Promise<boolean> {
+  const current = currentEntry();
+  const next = timeline[stepIndex + 1];
+  if (!current || !next) return false;
+  // Only fire once call/output work on this line is done — not after a normal
+  // line click, which would otherwise chain through empty advances.
+  if (current.kind !== "callReturn" && current.gameEvent !== "output") {
+    return false;
+  }
+  if (classifyTransition(current, next) !== "advance") return false;
+  const expected = expectedPrediction(current, next, tablesById());
+  if (expected.kind !== "advance") return false;
+  // Assignments after a call (e.g. y = foo()) still require staging.
+  if (Object.keys(expected.changes).length > 0) return false;
+  return tryAutoAdvance({
+    message: "Correct. Advanced to the next line.",
+  });
+}
+
 async function submitCallPrediction(guess: PredictionGuess): Promise<void> {
   if (guess.kind !== "call" || !pending || pending.kind !== "call") return;
   const current = currentEntry();
@@ -1576,7 +2303,7 @@ async function submitCallPrediction(guess: PredictionGuess): Promise<void> {
           level: "error",
         },
       ]);
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
     const advanceResult = await evaluateGuess(
@@ -1589,18 +2316,31 @@ async function submitCallPrediction(guess: PredictionGuess): Promise<void> {
     );
     if (!advanceResult.ok) {
       recordFailedAttempt();
-      showPopoverFeedback(advanceResult.feedback);
+      showPopoverFeedback(
+        advanceResult.feedback,
+        tipContextFromGuess(
+          stagedAdvanceGuess(
+            advanceExpected.kind === "advance"
+              ? advanceExpected.line
+              : pending.siteLine,
+          ),
+          advanceExpected,
+        ),
+      );
       announce("Not quite — check values before the call.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
     const callExpected = expectedPrediction(next, after, byId);
     const callResult = await evaluateGuess(callExpected, guess);
     if (!callResult.ok) {
       recordFailedAttempt();
-      showPopoverFeedback(callResult.feedback);
+      showPopoverFeedback(
+        callResult.feedback,
+        tipContextFromGuess(guess, callExpected),
+      );
       announce("Not quite — check the call.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
     await applySuccessfulGuesses(2, "Correct. Advanced and called.");
@@ -1608,14 +2348,17 @@ async function submitCallPrediction(guess: PredictionGuess): Promise<void> {
   }
 
   recordFailedAttempt();
+  const expectedKind = nextExpectedKind();
   showPopoverFeedback([
     {
       field: "params",
-      message: "Call is not the next step from here",
+      message: expectedKind
+        ? formatKindMismatch(expectedKind, difficulty)
+        : "Call is not the next step from here",
       level: "error",
     },
   ]);
-  setStatus("Incorrect — try again");
+  setStatus("Incorrect — try again", "error");
 }
 
 async function submitOutputPrediction(guess: PredictionGuess): Promise<void> {
@@ -1650,7 +2393,7 @@ async function submitOutputPrediction(guess: PredictionGuess): Promise<void> {
       recordFailedAttempt();
       showPopoverFeedback(advanceResult.feedback);
       announce("Not quite — check values before the output.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
     const outputExpected = expectedPrediction(next, after, byId);
@@ -1659,7 +2402,7 @@ async function submitOutputPrediction(guess: PredictionGuess): Promise<void> {
       recordFailedAttempt();
       showPopoverFeedback(outputResult.feedback);
       announce("Not quite — check the output.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
     await applySuccessfulGuesses(2, "Correct. Advanced and produced output.");
@@ -1667,14 +2410,19 @@ async function submitOutputPrediction(guess: PredictionGuess): Promise<void> {
   }
 
   recordFailedAttempt();
-  showPopoverFeedback([
-    {
-      field: "output",
-      message: "Output is not the next step from here",
-      level: "error",
-    },
-  ]);
-  setStatus("Incorrect — try again");
+  {
+    const expectedKind = nextExpectedKind();
+    showPopoverFeedback([
+      {
+        field: "output",
+        message: expectedKind
+          ? formatKindMismatch(expectedKind, difficulty)
+          : "Output is not the next step from here",
+        level: "error",
+      },
+    ]);
+  }
+  setStatus("Incorrect — try again", "error");
 }
 
 function recordFailedAttempt(): void {
@@ -1695,15 +2443,16 @@ async function gradeAndApply(
 
   if (!result.ok) {
     recordFailedAttempt();
-    if (pending) showPopoverFeedback(result.feedback);
-    else if (guess.kind === "advance") {
+    if (pending) {
+      showPopoverFeedback(result.feedback, tipContextFromGuess(guess, expected));
+    } else if (guess.kind === "advance") {
       const detail =
         result.feedback[0]?.message ??
         "Not quite — that is not the next step.";
       flashLineError(guess.line, detail);
     }
     announce("Not quite — check the highlighted answers and try again.");
-    setStatus("Incorrect — try again");
+    setStatus("Incorrect — try again", "error");
     return false;
   }
 
@@ -1754,7 +2503,7 @@ async function submitReturnPrediction(
       recordFailedAttempt();
       showPopoverFeedback(forResult.feedback);
       announce("Not quite — check the loop exit / return prediction.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -1769,7 +2518,7 @@ async function submitReturnPrediction(
       recordFailedAttempt();
       showPopoverFeedback(returnLineResult.feedback);
       announce("Not quite — check the loop exit / return prediction.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -1787,7 +2536,7 @@ async function submitReturnPrediction(
       recordFailedAttempt();
       showPopoverFeedback(returnResult.feedback);
       announce("Not quite — check the return value.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -1812,7 +2561,7 @@ async function submitReturnPrediction(
       recordFailedAttempt();
       showPopoverFeedback(advanceResult.feedback);
       announce("Not quite — check the advance/return prediction.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -1830,7 +2579,7 @@ async function submitReturnPrediction(
       recordFailedAttempt();
       showPopoverFeedback(returnResult.feedback);
       announce("Not quite — check the return value.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -1839,15 +2588,20 @@ async function submitReturnPrediction(
   }
 
   recordFailedAttempt();
-  showPopoverFeedback([
-    {
-      field: "returnValue",
-      message: "Return is not the next step from here",
-      level: "error",
-    },
-  ]);
+  {
+    const expectedKind = nextExpectedKind();
+    showPopoverFeedback([
+      {
+        field: "returnValue",
+        message: expectedKind
+          ? formatKindMismatch(expectedKind, difficulty)
+          : "Return is not the next step from here",
+        level: "error",
+      },
+    ]);
+  }
   announce("Not quite — return is not available for this step.");
-  setStatus("Incorrect — try again");
+  setStatus("Incorrect — try again", "error");
 }
 
 async function submitPending(): Promise<void> {
@@ -1859,6 +2613,8 @@ async function submitPending(): Promise<void> {
         ?.value ?? "";
     const warnings: FieldFeedback[] = [];
     const trimmed = value.trim();
+    let needsQuotes = false;
+    let notLiteral = false;
     if (!trimmed) {
       warnings.push({
         field: "assignValue",
@@ -1868,6 +2624,8 @@ async function submitPending(): Promise<void> {
     } else {
       const result = await validateLiteral(trimmed);
       if (!result.ok) {
+        notLiteral = true;
+        needsQuotes = true;
         warnings.push({
           field: "assignValue",
           message: "Not a valid Python literal (strings need quotes)",
@@ -1876,7 +2634,11 @@ async function submitPending(): Promise<void> {
       }
     }
     if (warnings.length > 0) {
-      showPopoverFeedback(warnings);
+      showPopoverFeedback(warnings, {
+        values: [trimmed],
+        needsQuotes,
+        notLiteral,
+      });
       return;
     }
 
@@ -1885,15 +2647,30 @@ async function submitPending(): Promise<void> {
     const valueCheck = await checkStagedAssignValue(name, trimmed);
     if (!valueCheck.ok) {
       recordFailedAttempt();
-      showPopoverFeedback([
+      const current = currentEntry();
+      const next = timeline[stepIndex + 1];
+      const expected =
+        current && next
+          ? expectedPrediction(current, next, tablesById())
+          : null;
+      showPopoverFeedback(
+        [
+          {
+            field: "assignValue",
+            message: valueCheck.message,
+            level: "error",
+          },
+        ],
         {
-          field: "assignValue",
-          message: valueCheck.message,
-          level: "error",
+          values: [trimmed],
+          expectedValues:
+            expected?.kind === "advance"
+              ? Object.values(expected.changes)
+              : undefined,
         },
-      ]);
+      );
       announce("Not quite — check the value and try again.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -1905,6 +2682,7 @@ async function submitPending(): Promise<void> {
     });
     if (advanced) return;
     renderStackAndTables();
+    applyTutorialGuidance();
     announce(
       `Staged ${name} = ${trimmed}. Click the next line to advance, or set another variable.`,
     );
@@ -1913,29 +2691,52 @@ async function submitPending(): Promise<void> {
   }
 
   if (pending.kind === "return") {
-    const returnValue =
-      popover.querySelector<HTMLInputElement>('input[name="returnValue"]')
-        ?.value ?? "";
+    const returnValue = readReturnValueFromPopover();
     const warnings: FieldFeedback[] = [];
-    const trimmed = returnValue.trim();
-    if (!trimmed) {
-      warnings.push({
-        field: "returnValue",
-        message: "Value is required",
-        level: "error",
-      });
-    } else {
-      const result = await validateLiteral(trimmed);
-      if (!result.ok) {
-        warnings.push({
-          field: "returnValue",
-          message: "Not a valid Python literal (strings need quotes)",
-          level: "warning",
-        });
+    const trimmed = returnValue.trim() || "None";
+    let needsQuotes = false;
+    let notLiteral = false;
+    if (returnValue.trim()) {
+      const slotInputs = [
+        ...popover.querySelectorAll<HTMLInputElement>(
+          'input[data-role="return-slot"]',
+        ),
+      ];
+      if (slotInputs.length > 0) {
+        for (let i = 0; i < slotInputs.length; i++) {
+          const slot = slotInputs[i]!.value.trim();
+          if (!slot) continue;
+          const result = await validateLiteral(slot);
+          if (!result.ok) {
+            notLiteral = true;
+            needsQuotes = true;
+            warnings.push({
+              field: `returnValue:${i}`,
+              message: "Not a valid Python literal (strings need quotes)",
+              level: "warning",
+            });
+          }
+        }
+      } else {
+        const result = await validateLiteral(trimmed);
+        if (!result.ok) {
+          notLiteral = true;
+          needsQuotes = true;
+          warnings.push({
+            field: "returnValue",
+            message: "Not a valid Python literal (strings need quotes)",
+            level: "warning",
+          });
+        }
       }
     }
     if (warnings.length > 0) {
-      showPopoverFeedback(warnings);
+      showPopoverFeedback(warnings, {
+        values: [returnValue],
+        expectedValues: [pendingReturnExpected],
+        needsQuotes,
+        notLiteral,
+      });
       return;
     }
     await submitReturnPrediction(trimmed, pending.keywordLine);
@@ -1947,7 +2748,23 @@ async function submitPending(): Promise<void> {
 
   const precheck = await collectLiteralWarnings(guess);
   if (precheck.length > 0) {
-    showPopoverFeedback(precheck);
+    const values =
+      guess.kind === "call"
+        ? guess.params.map((row) => row.value)
+        : guess.kind === "output"
+          ? [guess.output]
+          : guess.kind === "return"
+            ? [guess.returnValue]
+            : [];
+    showPopoverFeedback(precheck, {
+      values,
+      needsQuotes: precheck.some((item) =>
+        item.message.toLowerCase().includes("quotes"),
+      ),
+      notLiteral: precheck.some((item) =>
+        item.message.toLowerCase().includes("not a valid python literal"),
+      ),
+    });
     announce("Fix the highlighted fields, then try again.");
     return;
   }
@@ -1964,8 +2781,30 @@ async function submitPending(): Promise<void> {
   await gradeAndApply(guess);
 }
 
+async function submitZeroArgCall(next: Extract<PendingPrediction, { kind: "call" }>): Promise<void> {
+  pending = next;
+  const before = stepIndex;
+  await submitCallPrediction({
+    kind: "call",
+    line: next.line,
+    params: [],
+  });
+  // No empty popover for zero-arg easy/medium calls — clear stale pending on failure.
+  if (stepIndex === before) {
+    pending = null;
+  }
+}
+
 function openPrediction(next: PendingPrediction): void {
   if (!canPredict()) return;
+  if (
+    next.kind === "call" &&
+    (assistsLikeEasy(difficulty) || difficulty === "medium") &&
+    expectedCallParamNames(next.functionName).length === 0
+  ) {
+    void submitZeroArgCall(next);
+    return;
+  }
   buildPopover(next);
 }
 
@@ -1999,7 +2838,7 @@ async function submitAdvanceToLine(line: number): Promise<void> {
         "Not quite — that is not the next step.";
       flashLineError(line, detail);
       announce("Not quite — check the loop exit prediction.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2017,7 +2856,7 @@ async function submitAdvanceToLine(line: number): Promise<void> {
         "Not quite — that is not the next step.";
       flashLineError(line, detail);
       announce("Not quite — check the loop exit prediction.");
-      setStatus("Incorrect — try again");
+      setStatus("Incorrect — try again", "error");
       return;
     }
 
@@ -2038,21 +2877,123 @@ const DEFAULT_PREDICT_HINT =
   "Set a variable by clicking its name on the left of <code>=</code>, " +
   "then click a line to advance. Or click a call, return, print, or the output box.";
 
+function gamePageEl(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(".game-page");
+}
+
+function clearTutorialTargets(): void {
+  codeViewContent
+    .querySelectorAll(".tutorial-target, .tutorial-target-line")
+    .forEach((el) => {
+      el.classList.remove("tutorial-target", "tutorial-target-line");
+    });
+  ioEl.classList.remove("tutorial-target");
+  gamePageEl()?.classList.remove("tutorial-mode");
+}
+
+function markTutorialTargets(nodes: Iterable<Element | null | undefined>): void {
+  for (const node of nodes) {
+    if (node instanceof HTMLElement) node.classList.add("tutorial-target");
+  }
+}
+
+function highlightTutorialCall(functionName: string): void {
+  const calls = [
+    ...codeViewContent.querySelectorAll<HTMLElement>("[data-predict='call']"),
+  ].filter((el) => el.dataset.functionName === functionName);
+  const nonDef = calls.filter((el) => {
+    const lineEl = el.closest<HTMLElement>(".code-line");
+    const line = Number(lineEl?.dataset.line);
+    const text = sourceLines[line - 1] ?? "";
+    return !/^\s*(?:async\s+)?def\s/.test(text);
+  });
+  markTutorialTargets(nonDef.length > 0 ? nonDef : calls);
+}
+
+function applyTutorialGuidance(): void {
+  clearTutorialTargets();
+  if (!isTutorial(difficulty)) return;
+  gamePageEl()?.classList.add("tutorial-mode");
+  if (!canPredict()) return;
+
+  const current = currentEntry();
+  const next = timeline[stepIndex + 1];
+  if (!current || !next) return;
+
+  const kind = classifyTransition(current, next);
+  const expected = expectedPrediction(current, next, tablesById());
+  const { short, howTo } = describeNextAction(kind);
+
+  if (kind === "advance" && expected.kind === "advance") {
+    const needed = Object.keys(expected.changes).filter(
+      (name) => !stagedChanges.some((row) => row.name === name),
+    );
+    if (needed.length > 0) {
+      predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Set <code>${needed.join(", ")}</code>. ${howTo}`;
+      for (const name of needed) {
+        markTutorialTargets(
+          codeViewContent.querySelectorAll(
+            `[data-predict='assign'][data-var-name="${CSS.escape(name)}"]`,
+          ),
+        );
+      }
+      return;
+    }
+    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Click line <code>${expected.line}</code> to advance after your staged values.`;
+    const lineEl = codeViewContent.querySelector(
+      `.code-line[data-line="${expected.line}"]`,
+    );
+    lineEl?.classList.add("tutorial-target-line");
+    return;
+  }
+
+  if (kind === "call" && expected.kind === "call") {
+    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> ${short}. ${howTo}`;
+    highlightTutorialCall(expected.functionName);
+    return;
+  }
+
+  if (kind === "return") {
+    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> ${short}. ${howTo}`;
+    markTutorialTargets(
+      codeViewContent.querySelectorAll(
+        "[data-predict='return'], .return-ready, .predict-return",
+      ),
+    );
+    return;
+  }
+
+  if (kind === "output") {
+    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> ${short}. ${howTo}`;
+    markTutorialTargets(
+      codeViewContent.querySelectorAll("[data-predict='output']"),
+    );
+    ioEl.classList.add("tutorial-target");
+  }
+}
+
 function renderPredictionPanel(): void {
   const finished = gameFinished();
   completeMessage.hidden = !finished;
   if (finished) {
     hidePopover();
     clearStagedChanges();
-    setStatus("Complete");
+    clearTutorialTargets();
+    setStatus("Complete", "complete");
     predictHint.hidden = true;
     announce("Problem complete. You predicted every step.");
+    celebrateWin();
     return;
   }
 
   predictHint.hidden = false;
   if (timeline.length === 0) {
-    predictHint.innerHTML = DEFAULT_PREDICT_HINT;
+    predictHint.innerHTML = isTutorial(difficulty)
+      ? "Tutorial mode highlights what to click next — assignments, calls, returns, and print."
+      : DEFAULT_PREDICT_HINT;
+  } else if (isTutorial(difficulty)) {
+    // Hint text filled by applyTutorialGuidance.
+    predictHint.textContent = "";
   } else if (nextReturnCallSiteTableId()) {
     predictHint.textContent =
       "Return next: click the highlighted call site (↩) and enter the return value.";
@@ -2068,6 +3009,7 @@ function renderAll(): void {
   renderIo();
   renderProgress();
   renderPredictionPanel();
+  applyTutorialGuidance();
 }
 
 function showSetup(): void {
@@ -2079,22 +3021,37 @@ function showSetup(): void {
   attempts = 0;
   hidePopover();
   clearStagedChanges();
+  clearTutorialTargets();
+  exitTutorialDifficulty();
+  clearWinState();
   completeMessage.hidden = true;
   predictHint.hidden = false;
   predictHint.innerHTML = DEFAULT_PREDICT_HINT;
+  syncTutorialChrome();
+  renderProgress();
 }
 
 function showBoard(): void {
   setupEl.hidden = true;
   boardEl.hidden = false;
+  syncTutorialChrome();
 }
 
 problemSelect.addEventListener("change", () => {
   selectedTemplate =
-    GAME_PROBLEMS.find((item) => item.id === problemSelect.value) ??
-    GAME_PROBLEMS[0]!;
+    catalogProblems().find((item) => item.id === problemSelect.value) ??
+    catalogProblems()[0]!;
   problemDesc.textContent = selectedTemplate.description;
 });
+
+function onDifficultySelectChange(event: Event): void {
+  const select = event.currentTarget as HTMLSelectElement;
+  const next = select.value as "easy" | "medium" | "hard";
+  setDifficulty(next);
+}
+
+difficultySelect.addEventListener("change", onDifficultySelectChange);
+difficultySelectBoard.addEventListener("change", onDifficultySelectChange);
 
 restartBtn.addEventListener("click", () => {
   showSetup();
@@ -2104,15 +3061,29 @@ restartBtn.addEventListener("click", () => {
 
 startBtn.addEventListener("click", () => {
   if (!ready || running) return;
+  exitTutorialDifficulty();
   selectedTemplate =
-    GAME_PROBLEMS.find((item) => item.id === problemSelect.value) ??
-    GAME_PROBLEMS[0]!;
+    catalogProblems().find((item) => item.id === problemSelect.value) ??
+    catalogProblems()[0]!;
   void startProblem(selectedTemplate);
+});
+
+tutorialLink.addEventListener("click", (event) => {
+  event.preventDefault();
+  if (!ready || running) return;
+  const tutorial = tutorialTemplate();
+  if (!tutorial) {
+    announce("Tutorial problem is not available.");
+    return;
+  }
+  setDifficulty("tutorial");
+  void startProblem(tutorial);
 });
 
 async function startProblem(template: ProblemTemplate): Promise<void> {
   running = true;
   startBtn.disabled = true;
+  clearWinState();
   showBoard();
   setStatus(template.setup ? "Expanding problem…" : "Tracing…");
   attempts = 0;
@@ -2379,5 +3350,9 @@ window.addEventListener("resize", () => {
 });
 
 syncProblemPicker();
+fillDifficultySelect(difficultySelect);
+fillDifficultySelect(difficultySelectBoard);
+syncDifficultySelects();
+syncTutorialChrome();
 showSetup();
 post({ type: "init" });

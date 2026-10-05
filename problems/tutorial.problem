@@ -1,0 +1,17 @@
+id: tutorial
+title: Tutorial
+order: 0
+description: A short guided walkthrough of assignments, calls, returns, and print.
+
+[code]
+def greet(name):
+    message = "Hi, " + name
+    return message
+
+def main():
+    who = "Ada"
+    text = greet(who)
+    print(text)
+
+if __name__ == "__main__":
+    main()

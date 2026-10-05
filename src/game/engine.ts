@@ -1,4 +1,8 @@
 import type { TimelineEntry, TraceTable } from "../types";
+import {
+  formatKindMismatch,
+  type Difficulty,
+} from "./difficulty";
 
 export type PredictionKind = "advance" | "call" | "return" | "output";
 
@@ -87,6 +91,10 @@ export function classifyTransition(
 /**
  * Remove trace-only stops (line 0 and executable `def` statements), and add
  * explicit output stops so output—including final output—must be predicted.
+ *
+ * Also drops a trailing return into the outermost frame (the module) when
+ * nothing else follows the top-level call — e.g. after the last line of
+ * `main()` under `if __name__ == "__main__": main()`.
  */
 export function buildGameTimeline(
   raw: TimelineEntry[],
@@ -116,7 +124,24 @@ export function buildGameTimeline(
       });
     }
   }
-  return expanded;
+  return trimTrailingModuleReturns(expanded);
+}
+
+/** Drop final return(s) to the outermost frame when they end the timeline. */
+function trimTrailingModuleReturns(
+  entries: GameTimelineEntry[],
+): GameTimelineEntry[] {
+  const trimmed = [...entries];
+  while (trimmed.length > 1) {
+    const last = trimmed[trimmed.length - 1]!;
+    // Output stops copy kind from the prior entry (often callReturn); keep them.
+    if (last.gameEvent === "output") break;
+    if (last.kind !== "callReturn") break;
+    // After the callee is popped, stack length 1 means we're back in module.
+    if ((last.stack?.length ?? 0) > 1) break;
+    trimmed.pop();
+  }
+  return trimmed;
 }
 
 function localsAt(
@@ -300,6 +325,7 @@ export function gradePrediction(
   expected: ExpectedPrediction,
   guess: PredictionGuess,
   valueEqual: (expectedRepr: string, guessText: string) => boolean,
+  difficulty: Difficulty = "hard",
 ): { ok: boolean; feedback: FieldFeedback[] } {
   if (guess.kind !== expected.kind) {
     return {
@@ -307,7 +333,7 @@ export function gradePrediction(
       feedback: [
         {
           field: "kind",
-          message: "Wrong event type for the next step",
+          message: formatKindMismatch(expected.kind, difficulty),
           level: "error",
         },
       ],
@@ -390,7 +416,8 @@ export function gradePrediction(
         level: "error",
       });
     }
-    if (!valueEqual(expected.returnValue, guess.returnValue.trim())) {
+    const guessedReturn = guess.returnValue.trim() || "None";
+    if (!valueEqual(expected.returnValue, guessedReturn)) {
       feedback.push({
         field: "returnValue",
         message: "Incorrect return value",
@@ -561,6 +588,67 @@ export function runEngineSelfChecks(): string[] {
   assert(defaultAdvanceLine(4, 10) === 5, "default next line");
   assert(isValidDocumentLine(0, 10) === false, "line 0 invalid");
   assert(isValidDocumentLine(10, 10) === true, "last line valid");
+
+  const moduleReturn: TimelineEntry = {
+    tableId: "t0",
+    line: 10,
+    stepIndex: 0,
+    kind: "callReturn",
+    callSiteTableId: "t1",
+    stack: ["t0"],
+    stdoutLen: 0,
+  };
+  const lastMainStep: TimelineEntry = {
+    tableId: "t1",
+    line: 8,
+    stepIndex: 3,
+    stack: ["t0", "t1"],
+    stdoutLen: 0,
+  };
+  const trimmed = buildGameTimeline(
+    [lastMainStep, moduleReturn],
+    "def main():\n    x = 1\n",
+    "",
+  );
+  assert(trimmed.length === 1, "trim trailing module return");
+  assert(trimmed[0]?.tableId === "t1", "keep last main step");
+
+  const afterMain: TimelineEntry = {
+    tableId: "t0",
+    line: 11,
+    stepIndex: 1,
+    stack: ["t0"],
+    stdoutLen: 0,
+  };
+  const kept = buildGameTimeline(
+    [lastMainStep, moduleReturn, afterMain],
+    "def main():\n    x = 1\n",
+    "",
+  );
+  assert(kept.length === 3, "keep module return when more follows");
+
+  const printReturn: TimelineEntry = {
+    tableId: "t0",
+    line: 3,
+    stepIndex: 1,
+    kind: "callReturn",
+    callSiteTableId: "t2",
+    stack: ["t0"],
+    stdoutLen: 0,
+  };
+  const withPrintOutput = buildGameTimeline(
+    [printReturn],
+    "def foo():\n    return 1\nprint(foo())\n",
+    "1\n",
+  );
+  assert(
+    withPrintOutput.some((entry) => entry.gameEvent === "output"),
+    "keep output after final callReturn print",
+  );
+  assert(
+    withPrintOutput.at(-1)?.gameEvent === "output",
+    "final stop is print output",
+  );
 
   return failures;
 }

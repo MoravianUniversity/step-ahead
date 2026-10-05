@@ -4,6 +4,7 @@
  */
 import {
   coerceSetupValue,
+  compareProblemOrder,
   createRng,
   expandDeclarative,
   expandRandom,
@@ -137,6 +138,102 @@ $n $label $flag $r
     "my-problem",
   );
   assertEqual(template.id, "my-problem", "id defaults to stem");
+}
+
+// --- order metadata ---
+{
+  const withOrder = parseProblemFile(`
+id: a
+title: A
+order: 20
+
+[code]
+pass
+`);
+  assertEqual(withOrder.order, 20, "parses order");
+
+  const noOrder = parseProblemFile(`
+id: b
+title: B
+
+[code]
+pass
+`);
+  assertEqual(
+    noOrder.order,
+    Number.POSITIVE_INFINITY,
+    "missing order defaults to Infinity",
+  );
+
+  assertThrows(
+    () =>
+      parseProblemFile(`
+id: c
+title: C
+order: 1.5
+
+[code]
+pass
+`),
+    "non-integer order rejected",
+  );
+
+  const sorted = [
+    { order: Number.POSITIVE_INFINITY, title: "Zeta" },
+    { order: 20, title: "Beta" },
+    { order: 10, title: "Gamma" },
+    { order: 20, title: "Alpha" },
+  ].sort(compareProblemOrder);
+  assertEqual(
+    sorted.map((p) => p.title),
+    ["Gamma", "Alpha", "Beta", "Zeta"],
+    "sort by order then title; missing order last",
+  );
+}
+
+// --- enable metadata ---
+{
+  const on = parseProblemFile(`
+id: on
+title: On
+
+[code]
+pass
+`);
+  assertEqual(on.enable, true, "enable defaults to true");
+
+  const off = parseProblemFile(`
+id: off
+title: Off
+enable: false
+
+[code]
+pass
+`);
+  assertEqual(off.enable, false, "enable: false");
+
+  const explicitOn = parseProblemFile(`
+id: explicit
+title: Explicit
+enable: true
+
+[code]
+pass
+`);
+  assertEqual(explicitOn.enable, true, "enable: true");
+
+  assertThrows(
+    () =>
+      parseProblemFile(`
+id: bad
+title: Bad
+enable: maybe
+
+[code]
+pass
+`),
+    "invalid enable rejected",
+  );
 }
 
 // --- setup merge / coerce ---

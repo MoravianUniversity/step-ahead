@@ -1,16 +1,4 @@
-:root {
-  --ink: #1a2330;
-  --ink-muted: #5a6575;
-  --paper: #e8eef4;
-  --paper-deep: #d5dee8;
-  --surface: #f7fafc;
-  --accent: #0d6e6e;
-  --accent-ink: #f4fffe;
-  --danger: #9b2c2c;
-  --line: #b8c4d0;
-  --font-display: sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-}
+@import "./theme.css";
 
 *,
 *::before,
@@ -34,7 +22,12 @@ body {
   font-size: 14px;
   line-height: 1.5;
   background:
-    linear-gradient(180deg, #cfd9e4 0%, var(--paper) 28%, var(--paper-deep) 100%);
+    linear-gradient(
+      165deg,
+      var(--paper-top) 0%,
+      var(--paper) 42%,
+      var(--paper-deep) 100%
+    );
   background-attachment: fixed;
 }
 
@@ -152,11 +145,11 @@ body {
 }
 
 #run:hover:not(:disabled) {
-  background: #0a5858;
+  background: var(--accent-strong);
 }
 
 #edit:hover:not(:disabled) {
-  background: rgba(13, 110, 110, 0.08);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 #run:disabled,
@@ -243,17 +236,17 @@ body {
 }
 
 .code-line.stack-line {
-  background: rgba(90, 101, 117, 0.12);
-  box-shadow: inset 3px 0 0 rgba(90, 101, 117, 0.5);
+  background: color-mix(in srgb, var(--ink-muted) 12%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ink-muted) 50%, transparent);
 }
 
 .code-line.current-line {
-  background: rgba(13, 110, 110, 0.18);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .active-call {
-  background: rgba(13, 110, 110, 0.3);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 2px;
 }
 
@@ -291,7 +284,7 @@ body {
   padding: 0.35rem;
   border: 1px solid var(--line);
   background: var(--surface);
-  box-shadow: 0 0.45rem 1.25rem rgba(26, 35, 48, 0.2);
+  box-shadow: 0 0.45rem 1.25rem var(--shadow);
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: 0.82rem;
@@ -322,7 +315,7 @@ body {
 
 .call-site-tooltip-link:hover,
 .call-site-tooltip-link:focus-visible {
-  background: rgba(13, 110, 110, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   outline: none;
 }
@@ -350,7 +343,7 @@ body {
 }
 
 .call-stack-frame.current {
-  background: rgba(13, 110, 110, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .call-stack-label {
@@ -365,7 +358,7 @@ body {
 
 .call-stack-frame:hover,
 .call-stack-frame:focus-visible {
-  background: rgba(13, 110, 110, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   outline: none;
 }
@@ -420,7 +413,7 @@ body {
 
 #step-play:hover:not(:disabled) {
   color: var(--accent-ink);
-  background: #0a5858;
+  background: var(--accent-strong);
 }
 
 .io {
@@ -446,8 +439,8 @@ body {
 
 .io .error {
   color: var(--danger);
-  border-color: #e0b4b4;
-  background: #fff5f5;
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
 }
 
 .tables-scroll {
@@ -551,7 +544,7 @@ body {
 }
 
 .trace-table th {
-  background: rgba(13, 110, 110, 0.08);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   font-weight: 500;
   position: sticky;
   top: 0;
@@ -559,7 +552,7 @@ body {
 }
 
 .trace-table th.is-param {
-  background: rgba(10, 92, 138, 0.14);
+  background: color-mix(in srgb, var(--param) 16%, transparent);
 }
 
 .trace-table th .var-name {
@@ -569,7 +562,7 @@ body {
 }
 
 .trace-table th .var-name.var-param {
-  color: #0a5c8a;
+  color: var(--param);
 }
 
 .trace-table th .var-type {
@@ -582,12 +575,12 @@ body {
 }
 
 .trace-table.active {
-  outline: 2px solid rgba(13, 110, 110, 0.45);
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 4px;
 }
 
 .trace-table.on-stack {
-  outline: 1.5px solid rgba(90, 101, 117, 0.4);
+  outline: 1.5px solid color-mix(in srgb, var(--ink-muted) 40%, transparent);
   outline-offset: 4px;
 }
 
@@ -605,13 +598,13 @@ body {
     background: transparent;
   }
   35% {
-    background: rgba(13, 110, 110, 0.18);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
 }
 
 .trace-table td.current-cell {
-  background: rgba(13, 110, 110, 0.2);
-  box-shadow: inset 0 0 0 1px rgba(13, 110, 110, 0.35);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .trace-table td.blank {

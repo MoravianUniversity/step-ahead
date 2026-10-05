@@ -1,5 +1,6 @@
 id: area-swap
 title: Area swap
+order: 20
 description: Trace a call that swaps argument order — watch which values land in which parameters.
 
 [random]

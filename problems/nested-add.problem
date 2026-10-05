@@ -1,5 +1,6 @@
 id: nested-add
 title: Nested add
+order: 30
 description: Trace nested calls to a function whose name does not match what it does.
 
 [random]
