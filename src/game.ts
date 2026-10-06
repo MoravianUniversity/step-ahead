@@ -63,8 +63,8 @@ app.innerHTML = `
   <div class="game-page">
     <header class="game-hero">
       <p class="game-brand">Step Ahead</p>
-      <h1>What happens next?</h1>
-      <p class="game-lede">
+      <h1 id="problem-title">What happens next?</h1>
+      <p class="game-lede" id="problem-desc">
         Predict each step in the code.
       </p>
       <p class="sr-only" id="announce" aria-live="assertive"></p>
@@ -85,7 +85,6 @@ app.innerHTML = `
         </label>
         <button type="button" id="start" disabled>Start →</button>
       </div>
-      <p class="problem-desc" id="problem-desc"></p>
     </section>
 
     <section class="game-board" id="board" hidden aria-label="Prediction game">
@@ -111,9 +110,9 @@ app.innerHTML = `
       </div>
 
       <div class="game-layout">
+        <p class="predict-hint" id="predict-hint" hidden></p>
         <div class="game-code-pane">
           <div class="game-section">
-            <p class="predict-hint" id="predict-hint" hidden></p>
             <h2>Code</h2>
             <pre class="game-code" id="code-view" aria-label="Python source"><code id="code-view-content"></code></pre>
           </div>
@@ -158,6 +157,7 @@ const toolbarDifficultyWrap = document.querySelector<HTMLElement>(
 )!;
 const tutorialBadge = document.querySelector<HTMLElement>("#tutorial-badge")!;
 const tutorialLink = document.querySelector<HTMLAnchorElement>("#tutorial-link")!;
+const problemTitle = document.querySelector<HTMLElement>("#problem-title")!;
 const problemDesc = document.querySelector<HTMLElement>("#problem-desc")!;
 const startBtn = document.querySelector<HTMLButtonElement>("#start")!;
 const restartBtn = document.querySelector<HTMLButtonElement>("#restart")!;
@@ -509,6 +509,11 @@ function sizeSelectToLongestOption(select: HTMLSelectElement): void {
   )}px`;
 }
 
+function syncHeroProblem(title: string, description: string): void {
+  problemTitle.textContent = title;
+  problemDesc.textContent = description;
+}
+
 function syncProblemPicker(): void {
   const catalog = catalogProblems();
   problemSelect.replaceChildren();
@@ -522,7 +527,7 @@ function syncProblemPicker(): void {
     catalog.find((item) => item.id === problemSelect.value) ?? catalog[0]!;
   if (selectedTemplate) {
     problemSelect.value = selectedTemplate.id;
-    problemDesc.textContent = selectedTemplate.description;
+    syncHeroProblem(selectedTemplate.title, selectedTemplate.description);
   }
   sizeSelectToLongestOption(problemSelect);
 }
@@ -3419,6 +3424,7 @@ function showSetup(): void {
   clearWinState();
   predictHint.hidden = false;
   predictHint.innerHTML = DEFAULT_PREDICT_HINT;
+  syncHeroProblem(selectedTemplate.title, selectedTemplate.description);
   syncTutorialChrome();
   renderProgress();
 }
@@ -3433,7 +3439,7 @@ problemSelect.addEventListener("change", () => {
   selectedTemplate =
     catalogProblems().find((item) => item.id === problemSelect.value) ??
     catalogProblems()[0]!;
-  problemDesc.textContent = selectedTemplate.description;
+  syncHeroProblem(selectedTemplate.title, selectedTemplate.description);
 });
 
 function onDifficultySelectChange(event: Event): void {
@@ -3528,6 +3534,7 @@ async function startProblem(template: ProblemTemplate): Promise<void> {
   running = true;
   startBtn.disabled = true;
   clearWinState();
+  syncHeroProblem(template.title, template.description);
   showBoard();
   clearMistakes();
   stepIndex = 0;
