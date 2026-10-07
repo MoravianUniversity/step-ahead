@@ -280,7 +280,7 @@ export function sameChangeMap(
     if (used.has(name)) {
       feedback.push({
         field,
-        message: `Duplicate variable “${name}”`,
+        message: `Duplicate variable \`${name}\``,
         level: "error",
       });
       continue;
@@ -290,7 +290,7 @@ export function sameChangeMap(
     if (expectedValue == null) {
       feedback.push({
         field,
-        message: `“${name}” does not change on this step`,
+        message: `\`${name}\` does not change on this step`,
         level: "error",
       });
       continue;
@@ -298,7 +298,7 @@ export function sameChangeMap(
     if (!valueEqual(expectedValue, row.value.trim())) {
       feedback.push({
         field: `${field}:value`,
-        message: `Incorrect value for “${name}”`,
+        message: `Incorrect value for \`${name}\``,
         level: "error",
       });
     }
@@ -308,7 +308,7 @@ export function sameChangeMap(
     if (!used.has(name)) {
       feedback.push({
         field: "changes",
-        message: `Missing change for “${name}”`,
+        message: `Missing change for \`${name}\``,
         level: "error",
       });
     }
@@ -382,7 +382,7 @@ export function gradePrediction(
       if (expectedValue == null) {
         feedback.push({
           field,
-          message: `Unexpected parameter “${name}”`,
+          message: `Unexpected parameter \`${name}\``,
           level: "error",
         });
         continue;
@@ -390,7 +390,7 @@ export function gradePrediction(
       if (!valueEqual(expectedValue, row.value.trim())) {
         feedback.push({
           field: `${field}:value`,
-          message: `Incorrect value for “${name}”`,
+          message: `Incorrect value for \`${name}\``,
           level: "error",
         });
       }
@@ -399,7 +399,7 @@ export function gradePrediction(
       if (!seen.has(name)) {
         feedback.push({
           field: "params",
-          message: `Missing parameter “${name}”`,
+          message: `Missing parameter \`${name}\``,
           level: "error",
         });
       }

@@ -68,7 +68,7 @@ assert(
 
 assertEqual(
   formatWrongAssignTarget("x", { y: "1" }, "easy"),
-  "The variable y needs to be set next",
+  "The variable `y` needs to be set next",
   "easy wrong assign names target",
 );
 assertEqual(
@@ -78,7 +78,7 @@ assertEqual(
 );
 assertEqual(
   formatWrongAssignTarget("x", { y: "1" }, "hard"),
-  "“x” does not change on the next step",
+  "`x` does not change on the next step",
   "hard wrong assign current wording",
 );
 
@@ -254,7 +254,7 @@ assertEqual(
     assignName: "x",
     assignValue: "3",
   }),
-  ["The variable x is being set."],
+  ["The variable `x` is being set."],
   "easy assign names variable at 2 mistakes",
 );
 assertEqual(
@@ -263,7 +263,7 @@ assertEqual(
     assignName: "x",
     assignValue: "3",
   }),
-  ["The variable x is being set.", "Set x to 3."],
+  ["The variable `x` is being set.", "Set `x` to `3`."],
   "easy assign reveals value at 3 mistakes",
 );
 assertEqual(
@@ -272,7 +272,7 @@ assertEqual(
     assignName: "x",
     assignValue: "3",
   }),
-  ["The variable x is being set."],
+  ["The variable `x` is being set."],
   "medium assign names variable at 3 mistakes",
 );
 assert(
@@ -295,7 +295,7 @@ assert(
   progressiveAnswerHints("easy", 3, {
     kind: "return",
     returnValue: "42",
-  }).includes("Return 42."),
+  }).includes("Return `42`."),
   "easy return reveals value",
 );
 assert(

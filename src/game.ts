@@ -110,7 +110,7 @@ app.innerHTML = `
       </div>
 
       <div class="game-layout">
-        <p class="predict-hint" id="predict-hint" hidden></p>
+        <div class="predict-hint" id="predict-hint" hidden></div>
         <div class="game-code-pane">
           <div class="game-section">
             <h2>Code</h2>
@@ -244,10 +244,24 @@ let celebrationTimer: number | null = null;
 /** Guards win celebration so re-renders do not retrigger confetti. */
 let celebrationPlayed = false;
 let celebrating = false;
-/** Tips revealed for the open popover session (Medium). */
+/** Tips revealed for the current step (persist across popover close). */
 let revealedTips = new Set<TipId>();
 /** Expected return repr used to rebuild Easy multi-slot returns. */
 let pendingReturnExpected = "";
+/** Progressive answer hint shown in #predict-hint (replaces base guidance). */
+let activeProgressiveHint: string | null = null;
+/** Error detail shown in #predict-hint when no progressive hint (replaces base). */
+let activeErrorDetail: string | null = null;
+/** True when activeErrorDetail is about clicking the wrong target (not a bad value). */
+let activeErrorIsTargetSelection = false;
+/** Base next-step copy for #predict-hint when no progressive/error override. */
+let basePredictHint: { type: "html" | "text"; value: string } | null = null;
+/** Kind of the last open popover — used for tip refresh after dismiss. */
+let lastPopoverKind: PopoverKind | null = null;
+/** Blocks Escape/click-outside while an async submit is grading. */
+let popoverSubmitInFlight = false;
+/** Last board-hint key that triggered a pulse animation. */
+let lastPulsedHintKey = "";
 
 const SUCCESS_FX_MS = 850;
 const ERROR_FX_MS = 900;
@@ -289,7 +303,27 @@ function post(msg: MainToWorker): void {
 }
 
 function announce(text: string): void {
-  announceEl.textContent = text;
+  announceEl.textContent = text.replace(/`/g, "");
+}
+
+/** Render `backtick` segments as <code>; all other text is plain. */
+function fillMarkedText(el: HTMLElement, text: string): void {
+  el.replaceChildren();
+  const re = /`([^`]+)`/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > last) {
+      el.append(text.slice(last, match.index));
+    }
+    const code = document.createElement("code");
+    code.textContent = match[1]!;
+    el.append(code);
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) {
+    el.append(text.slice(last));
+  }
 }
 
 function pulseProgressTone(tone: "success" | "error"): void {
@@ -580,14 +614,15 @@ function setDifficulty(next: Difficulty): void {
     const keep = pending;
     buildPopover(keep);
   } else if (pending) {
-    revealedTips = new Set(
-      initialTipsForPopover(
-        popoverKindOf(pending.kind),
-        difficulty,
-        expectedValuesForPending(pending),
-      ),
-    );
-    renderPopoverTips();
+    for (const id of initialTipsForPopover(
+      popoverKindOf(pending.kind),
+      difficulty,
+      expectedValuesForPending(pending),
+    )) {
+      revealedTips.add(id);
+    }
+    renderPopoverStaticTips();
+    syncBoardHintFromState(true);
   }
   if (!boardEl.hidden) renderAll();
 }
@@ -751,34 +786,122 @@ function popoverKindOf(pendingKind: PendingPrediction["kind"]): PopoverKind {
   return pendingKind;
 }
 
-function renderPopoverTips(): void {
-  const list = popover.querySelector(".predict-tips");
-  if (!list || !pending) return;
-  const kind = popoverKindOf(pending.kind);
-  const tips = tipsForPopover(kind, difficulty, revealedTips);
+function clearStepHintFeedback(): void {
+  activeProgressiveHint = null;
+  activeErrorDetail = null;
+  activeErrorIsTargetSelection = false;
+  revealedTips = new Set();
+  lastPopoverKind = null;
+  lastPulsedHintKey = "";
+}
+
+/** True when this prediction is the correct next click target (kind + name). */
+function isCorrectNextTarget(next: PendingPrediction): boolean {
+  if (next.kind === "assign") {
+    if (nextExpectedKind() !== "advance") return false;
+    const current = currentEntry();
+    const step = timeline[stepIndex + 1];
+    if (!current || !step) return false;
+    if (classifyTransition(current, step) !== "advance") return false;
+    const expected = expectedPrediction(current, step, tablesById());
+    return (
+      expected.kind === "advance" && expected.changes[next.name] != null
+    );
+  }
+  if (next.kind === "call") return isUpcomingCallTo(next.functionName);
+  if (next.kind === "return") return nextExpectedKind() === "return";
+  if (next.kind === "output") return nextExpectedKind() === "output";
+  return false;
+}
+
+/** Drop click-target errors once the player opens the right variable/call/etc. */
+function clearTargetSelectionErrorIfCorrect(next: PendingPrediction): void {
+  if (!activeErrorDetail || !activeErrorIsTargetSelection) return;
+  if (!isCorrectNextTarget(next)) return;
+  activeErrorDetail = null;
+  activeErrorIsTargetSelection = false;
+  paintPredictHint();
+}
+
+function popoverKindForTips(): PopoverKind | null {
+  if (pending) return popoverKindOf(pending.kind);
+  return lastPopoverKind;
+}
+
+/** Recompute progressive board hint. Returns whether it changed. */
+function refreshProgressiveHint(): boolean {
+  const kind = popoverKindForTips();
+  // Keep the last progressive hint if we no longer have kind context.
+  if (!kind) return false;
   const progressive = progressiveAnswerHints(
     difficulty,
     stepMistakeCount,
     progressiveHintContextForPending() ?? { kind },
   );
+  const next =
+    progressive.length > 0 ? (progressive[progressive.length - 1] ?? null) : null;
+  const changed = next !== activeProgressiveHint;
+  activeProgressiveHint = next;
+  return changed;
+}
+
+/** Static tip copy (literal-value, etc.) lives in the popover, not the board bar. */
+function renderPopoverStaticTips(): void {
+  const list = popover.querySelector<HTMLElement>(".predict-popover-static-tips");
+  if (!list || !pending) return;
+  const kind = popoverKindOf(pending.kind);
+  const tips = tipsForPopover(kind, difficulty, revealedTips);
   list.replaceChildren();
-  if (tips.length === 0 && progressive.length === 0) {
-    list.setAttribute("hidden", "");
+  if (tips.length === 0) {
+    list.hidden = true;
     return;
   }
-  list.removeAttribute("hidden");
+  list.hidden = false;
   for (const id of tips) {
     const item = document.createElement("p");
-    item.className = "predict-tip";
+    item.className = "predict-popover-static-tip";
     item.textContent = tipText(id);
     list.appendChild(item);
   }
-  for (const text of progressive) {
-    const item = document.createElement("p");
-    item.className = "predict-tip predict-tip-progressive";
-    item.textContent = text;
-    list.appendChild(item);
+}
+
+/**
+ * Paint #predict-hint: progressive (or error) replaces base guidance so the
+ * bar height stays stable — no appended extra lines.
+ */
+function paintPredictHint(pulse = false): void {
+  if (predictHint.hidden) return;
+  predictHint.classList.remove(
+    "predict-hint-has-progressive",
+    "predict-hint-has-error",
+  );
+
+  let key = "base";
+  if (activeProgressiveHint) {
+    fillMarkedText(predictHint, activeProgressiveHint);
+    predictHint.classList.add("predict-hint-has-progressive");
+    key = `progressive:${activeProgressiveHint}`;
+  } else if (activeErrorDetail) {
+    fillMarkedText(predictHint, activeErrorDetail);
+    predictHint.classList.add("predict-hint-has-error");
+    key = `error:${activeErrorDetail}`;
+  } else if (basePredictHint?.type === "html") {
+    predictHint.innerHTML = basePredictHint.value;
+  } else if (basePredictHint) {
+    fillMarkedText(predictHint, basePredictHint.value);
+  } else {
+    predictHint.textContent = "";
   }
+
+  if (pulse && key !== "base" && key !== lastPulsedHintKey) {
+    lastPulsedHintKey = key;
+    replayAnimationClass(predictHint, "predict-hint-pulse");
+  }
+}
+
+function syncBoardHintFromState(pulse: boolean): void {
+  const changed = refreshProgressiveHint();
+  paintPredictHint(pulse && changed);
 }
 
 function progressiveHintContextForPending(): ProgressiveHintContext | null {
@@ -842,16 +965,6 @@ function progressiveHintContextForPending(): ProgressiveHintContext | null {
     kind: "output",
     output: expectedOutputText(),
   };
-}
-
-function revealTipsFromFeedback(
-  kind: PopoverKind,
-  feedback: FieldFeedback[],
-  context: TipGuessContext = {},
-): void {
-  const toReveal = tipsToRevealOnFeedback(kind, feedback, context, difficulty);
-  for (const id of toReveal) revealedTips.add(id);
-  renderPopoverTips();
 }
 
 /** Expected value reprs for tip gating (e.g. whether a string is in the answer). */
@@ -1795,30 +1908,39 @@ function clearPopoverFeedback(): void {
     .forEach((el) => {
       el.classList.remove("field-error", "field-warning", "fx-error-shake");
     });
-  const list = popover.querySelector(".popover-feedback");
-  if (list) list.replaceChildren();
+  const inline = popover.querySelector(".popover-feedback-inline");
+  if (inline) {
+    inline.textContent = "";
+    inline.classList.remove("error", "warning");
+  }
 }
 
 function showPopoverFeedback(
   items: FieldFeedback[],
   tipContext: TipGuessContext = {},
+  options: { targetSelection?: boolean } = {},
 ): void {
   clearPopoverFeedback();
-  const list = popover.querySelector(".popover-feedback");
   const hasError = items.some((item) => item.level === "error");
-  if (!list) {
-    const detail = items[0]?.message;
-    if (detail) {
-      announce(detail);
-    }
-    return;
+  const preferred =
+    items.find((item) => item.level === "error") ?? items[0] ?? null;
+  const detail = preferred?.message ?? null;
+  const level = preferred?.level ?? "error";
+
+  const inline = popover.querySelector<HTMLElement>(".popover-feedback-inline");
+  if (inline && detail) {
+    fillMarkedText(inline, detail);
+    inline.classList.add(level === "warning" ? "warning" : "error");
+  } else if (!inline && detail) {
+    announce(detail);
   }
-  for (const item of items) {
-    const row = document.createElement("p");
-    row.className = item.level;
-    row.textContent = item.message;
-    list.appendChild(row);
+
+  const errorChanged = detail != null && detail !== activeErrorDetail;
+  if (detail) {
+    activeErrorDetail = detail;
+    activeErrorIsTargetSelection = options.targetSelection === true;
   }
+
   for (const item of items) {
     const el = popover.querySelector<HTMLElement>(
       `[data-field="${CSS.escape(item.field)}"]`,
@@ -1829,25 +1951,31 @@ function showPopoverFeedback(
   if (hasError) {
     shakeErrorFields();
   }
-  if (pending) {
+  const kind = popoverKindForTips();
+  if (kind) {
     const needsQuotes = items.some((item) =>
       item.message.toLowerCase().includes("quotes"),
     );
     const notLiteral = items.some((item) =>
       item.message.toLowerCase().includes("not a valid python literal"),
     );
-    revealTipsFromFeedback(popoverKindOf(pending.kind), items, {
+    const toReveal = tipsToRevealOnFeedback(kind, items, {
       ...tipContext,
       needsQuotes: tipContext.needsQuotes ?? needsQuotes,
       notLiteral: tipContext.notLiteral ?? notLiteral,
-    });
+    }, difficulty);
+    for (const id of toReveal) revealedTips.add(id);
   }
+  renderPopoverStaticTips();
+  const progressiveChanged = refreshProgressiveHint();
+  paintPredictHint(errorChanged || progressiveChanged);
 }
 
 function hidePopover(): void {
+  if (pending) lastPopoverKind = popoverKindOf(pending.kind);
   pending = null;
   pendingReturnExpected = "";
-  revealedTips = new Set();
+  document.body.classList.remove("popover-dragging");
   popover.hidden = true;
   popover.replaceChildren();
 }
@@ -1886,13 +2014,17 @@ function stageChange(
 async function checkStagedAssignValue(
   name: string,
   value: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<
+  | { ok: true }
+  | { ok: false; message: string; targetSelection?: boolean }
+> {
   const current = currentEntry();
   const next = timeline[stepIndex + 1];
   const kind = current && next ? classifyTransition(current, next) : null;
   if (!current || !next || kind !== "advance") {
     return {
       ok: false,
+      targetSelection: true,
       message: kind
         ? formatNoAssignNeeded(kind, difficulty)
         : "No variable update is needed for the next step",
@@ -1902,6 +2034,7 @@ async function checkStagedAssignValue(
   if (expected.kind !== "advance") {
     return {
       ok: false,
+      targetSelection: true,
       message: formatNoAssignNeeded(expected.kind, difficulty),
     };
   }
@@ -1909,13 +2042,14 @@ async function checkStagedAssignValue(
   if (expectedValue == null) {
     return {
       ok: false,
+      targetSelection: true,
       message: formatWrongAssignTarget(name, expected.changes, difficulty),
     };
   }
   if (!(await valuesEqual(expectedValue, value))) {
     return {
       ok: false,
-      message: `Incorrect value for “${name}”`,
+      message: `Incorrect value for \`${name}\``,
     };
   }
   return { ok: true };
@@ -1925,6 +2059,19 @@ function enablePopoverDrag(handle: HTMLElement): void {
   handle.classList.add("predict-popover-drag");
   handle.title = "Drag to move";
   let drag: { offsetX: number; offsetY: number } | null = null;
+
+  const blockTouchScroll = (event: TouchEvent) => {
+    if (!drag) return;
+    event.preventDefault();
+  };
+
+  const endDrag = () => {
+    if (!drag) return;
+    drag = null;
+    document.body.classList.remove("popover-dragging");
+    document.removeEventListener("touchmove", blockTouchScroll);
+  };
+
   handle.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement | null)?.closest("input, textarea, button")) {
@@ -1936,10 +2083,14 @@ function enablePopoverDrag(handle: HTMLElement): void {
       offsetY: event.clientY - rect.top,
     };
     handle.setPointerCapture(event.pointerId);
+    document.body.classList.add("popover-dragging");
+    // Non-passive so we can cancel page scroll while the title bar is dragged.
+    document.addEventListener("touchmove", blockTouchScroll, { passive: false });
     event.preventDefault();
   });
   handle.addEventListener("pointermove", (event) => {
     if (!drag) return;
+    event.preventDefault();
     const left = Math.min(
       Math.max(4, event.clientX - drag.offsetX),
       window.innerWidth - 40,
@@ -1951,12 +2102,9 @@ function enablePopoverDrag(handle: HTMLElement): void {
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
   });
-  handle.addEventListener("pointerup", () => {
-    drag = null;
-  });
-  handle.addEventListener("pointercancel", () => {
-    drag = null;
-  });
+  handle.addEventListener("pointerup", endDrag);
+  handle.addEventListener("pointercancel", endDrag);
+  handle.addEventListener("lostpointercapture", endDrag);
 }
 
 function buildCallParamRows(
@@ -2125,33 +2273,71 @@ function readReturnValueFromPopover(): string {
   );
 }
 
+function codeChip(text: string): HTMLElement {
+  const el = document.createElement("code");
+  el.textContent = text;
+  return el;
+}
+
+function fillPopoverTitle(title: HTMLElement, next: PendingPrediction): void {
+  title.replaceChildren();
+  if (next.kind === "assign") {
+    title.append("Set ", codeChip(next.name));
+  } else if (next.kind === "call") {
+    title.append("Call ", codeChip(next.functionName), "()");
+  } else if (next.kind === "return") {
+    title.textContent = "Return";
+  } else {
+    title.textContent = "Produce output";
+  }
+}
+
+function buildPopoverGrip(): HTMLElement {
+  const grip = document.createElement("span");
+  grip.className = "predict-popover-grip";
+  grip.setAttribute("aria-hidden", "true");
+  for (let i = 0; i < 6; i++) {
+    grip.appendChild(document.createElement("span"));
+  }
+  return grip;
+}
+
 function buildPopover(next: PendingPrediction): void {
+  clearTargetSelectionErrorIfCorrect(next);
   pending = next;
-  revealedTips = new Set(
-    initialTipsForPopover(
-      popoverKindOf(next.kind),
-      difficulty,
-      expectedValuesForPending(next),
-    ),
-  );
+  lastPopoverKind = popoverKindOf(next.kind);
+  for (const id of initialTipsForPopover(
+    lastPopoverKind,
+    difficulty,
+    expectedValuesForPending(next),
+  )) {
+    revealedTips.add(id);
+  }
   hideCallTooltip();
   popover.replaceChildren();
 
   const form = document.createElement("form");
   form.className = "predict-popover-form";
 
-  const description = document.createElement("p");
-  description.className = "predict-popover-desc";
+  const titlebar = document.createElement("div");
+  titlebar.className = "predict-popover-titlebar";
+  const title = document.createElement("span");
+  title.className = "predict-popover-title";
+  fillPopoverTitle(title, next);
+  titlebar.append(buildPopoverGrip(), title);
 
   const fields = document.createElement("div");
   fields.className = "predict-popover-fields";
 
-  const tips = document.createElement("div");
-  tips.className = "predict-tips";
-  tips.setAttribute("hidden", "");
+  const staticTips = document.createElement("div");
+  staticTips.className = "predict-popover-static-tips";
+  staticTips.hidden = true;
 
   const actions = document.createElement("div");
   actions.className = "predict-popover-actions";
+  const inlineFeedback = document.createElement("div");
+  inlineFeedback.className = "popover-feedback-inline";
+  inlineFeedback.setAttribute("role", "status");
   const submit = document.createElement("button");
   submit.type = "submit";
   submit.className = "predict-submit";
@@ -2162,13 +2348,13 @@ function buildPopover(next: PendingPrediction): void {
     "aria-label",
     next.kind === "assign" ? "Stage variable update" : "Check prediction",
   );
-  actions.appendChild(submit);
-
-  const feedback = document.createElement("div");
-  feedback.className = "popover-feedback";
+  actions.append(inlineFeedback, submit);
+  if (activeErrorDetail) {
+    fillMarkedText(inlineFeedback, activeErrorDetail);
+    inlineFeedback.classList.add("error");
+  }
 
   if (next.kind === "assign") {
-    description.textContent = `Set ${next.name}`;
     const row = document.createElement("div");
     row.className = "field";
     row.dataset.field = "assignValue";
@@ -2178,17 +2364,14 @@ function buildPopover(next: PendingPrediction): void {
     row.append(input);
     fields.appendChild(row);
   } else if (next.kind === "call") {
-    description.textContent = `Call ${next.functionName}()`;
     const rows = document.createElement("div");
     rows.className = "param-rows";
     rows.dataset.field = "params";
     buildCallParamRows(rows, next.functionName);
     fields.appendChild(rows);
   } else if (next.kind === "return") {
-    description.textContent = "Return";
     buildReturnFields(fields);
   } else {
-    description.textContent = "Produce output";
     const row = document.createElement("div");
     row.className = "field";
     row.dataset.field = "output";
@@ -2222,15 +2405,16 @@ function buildPopover(next: PendingPrediction): void {
     fields.appendChild(row);
   }
 
-  form.append(description, fields, tips, actions, feedback);
+  form.append(titlebar, fields, staticTips, actions);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     await submitPending();
   });
   popover.appendChild(form);
-  enablePopoverDrag(description);
+  enablePopoverDrag(titlebar);
   positionPopover(next.anchor);
-  renderPopoverTips();
+  renderPopoverStaticTips();
+  syncBoardHintFromState(true);
   const firstInput = popover.querySelector<HTMLElement>("input, textarea");
   firstInput?.focus();
 }
@@ -2381,6 +2565,7 @@ async function evaluateGuess(
 }
 
 async function applySuccessfulGuesses(steps: number, message: string): Promise<void> {
+  clearStepHintFeedback();
   hidePopover();
   clearStagedChanges();
   stepIndex += steps;
@@ -2539,13 +2724,17 @@ async function submitCallPrediction(guess: PredictionGuess): Promise<void> {
       ? formatKindMismatch(expectedKind, difficulty)
       : "Call is not the next step from here";
     recordFailedAttempt(message);
-    showPopoverFeedback([
-      {
-        field: "params",
-        message,
-        level: "error",
-      },
-    ]);
+    showPopoverFeedback(
+      [
+        {
+          field: "params",
+          message,
+          level: "error",
+        },
+      ],
+      {},
+      { targetSelection: true },
+    );
   }
 }
 
@@ -2601,13 +2790,17 @@ async function submitOutputPrediction(guess: PredictionGuess): Promise<void> {
       ? formatKindMismatch(expectedKind, difficulty)
       : "Output is not the next step from here";
     recordFailedAttempt(message);
-    showPopoverFeedback([
-      {
-        field: "output",
-        message,
-        level: "error",
-      },
-    ]);
+    showPopoverFeedback(
+      [
+        {
+          field: "output",
+          message,
+          level: "error",
+        },
+      ],
+      {},
+      { targetSelection: true },
+    );
   }
 }
 
@@ -2620,6 +2813,7 @@ function clearMistakes(): void {
   mistakes = [];
   mistakesPanelPinned = false;
   stepMistakeCount = 0;
+  clearStepHintFeedback();
   hideMistakesPanel(true);
 }
 
@@ -2637,7 +2831,7 @@ function renderMistakesPanelContents(): void {
     line.textContent = `Line ${entry.line}`;
     const message = document.createElement("span");
     message.className = "mistakes-panel-message";
-    message.textContent = entry.message;
+    fillMarkedText(message, entry.message);
     item.append(line, message);
     list.appendChild(item);
   }
@@ -2684,7 +2878,7 @@ function recordFailedAttempt(detail: string | FieldFeedback[] = "Incorrect predi
   stepMistakeCount += 1;
   pulseProgressTone("error");
   renderProgress();
-  if (pending) renderPopoverTips();
+  syncBoardHintFromState(true);
 }
 
 async function gradeAndApply(
@@ -2701,7 +2895,11 @@ async function gradeAndApply(
   if (!result.ok) {
     recordFailedAttempt(result.feedback);
     if (pending) {
-      showPopoverFeedback(result.feedback, tipContextFromGuess(guess, expected));
+      showPopoverFeedback(
+        result.feedback,
+        tipContextFromGuess(guess, expected),
+        { targetSelection: guess.kind !== expected.kind },
+      );
     } else if (guess.kind === "advance") {
       const detail =
         result.feedback[0]?.message ??
@@ -2844,18 +3042,32 @@ async function submitReturnPrediction(
       ? formatKindMismatch(expectedKind, difficulty)
       : "Return is not the next step from here";
     recordFailedAttempt(message);
-    showPopoverFeedback([
-      {
-        field: "returnValue",
-        message,
-        level: "error",
-      },
-    ]);
+    showPopoverFeedback(
+      [
+        {
+          field: "returnValue",
+          message,
+          level: "error",
+        },
+      ],
+      {},
+      { targetSelection: true },
+    );
   }
   announce("Not quite — return is not available for this step.");
 }
 
 async function submitPending(): Promise<void> {
+  if (!pending || popoverSubmitInFlight) return;
+  popoverSubmitInFlight = true;
+  try {
+    await submitPendingBody();
+  } finally {
+    popoverSubmitInFlight = false;
+  }
+}
+
+async function submitPendingBody(): Promise<void> {
   if (!pending) return;
 
   if (pending.kind === "assign") {
@@ -2919,12 +3131,16 @@ async function submitPending(): Promise<void> {
               ? Object.values(expected.changes)
               : undefined,
         },
+        { targetSelection: valueCheck.targetSelection === true },
       );
       announce("Not quite — check the value and try again.");
       return;
     }
 
     hidePopover();
+    activeErrorDetail = null;
+    activeErrorIsTargetSelection = false;
+    paintPredictHint();
     stageChange(name, trimmed, false);
     const advanced = await tryAutoAdvance({
       requireLine: assignLine,
@@ -3032,12 +3248,18 @@ async function submitPending(): Promise<void> {
 
 async function submitZeroArgCall(next: Extract<PendingPrediction, { kind: "call" }>): Promise<void> {
   pending = next;
+  lastPopoverKind = "call";
   const before = stepIndex;
-  await submitCallPrediction({
-    kind: "call",
-    line: next.line,
-    params: [],
-  });
+  popoverSubmitInFlight = true;
+  try {
+    await submitCallPrediction({
+      kind: "call",
+      line: next.line,
+      params: [],
+    });
+  } finally {
+    popoverSubmitInFlight = false;
+  }
   // No empty popover for zero-arg easy/medium calls — clear stale pending on failure.
   if (stepIndex === before) {
     pending = null;
@@ -3056,17 +3278,22 @@ function openPrediction(next: PendingPrediction): void {
         ? formatKindMismatch(expectedKind, difficulty)
         : "Call is not the next step from here";
       recordFailedAttempt(message);
-      showPopoverFeedback([
-        {
-          field: "params",
-          message,
-          level: "error",
-        },
-      ]);
+      showPopoverFeedback(
+        [
+          {
+            field: "params",
+            message,
+            level: "error",
+          },
+        ],
+        {},
+        { targetSelection: true },
+      );
       announce(message);
       return;
     }
     if (assisted && expectedCallParamNames(next.functionName).length === 0) {
+      clearTargetSelectionErrorIfCorrect(next);
       void submitZeroArgCall(next);
       return;
     }
@@ -3280,15 +3507,32 @@ function formatTutorialAssignHint(
   return `<strong class="tutorial-next-label">Next:</strong> Set ${parts.join(" and ")}. Click each variable on the left of <code>=</code>.`;
 }
 
+function setBasePredictHintHtml(html: string): void {
+  basePredictHint = { type: "html", value: html };
+}
+
+function setBasePredictHintText(text: string): void {
+  basePredictHint = { type: "text", value: text };
+}
+
 function applyTutorialGuidance(): void {
   clearTutorialTargets();
-  if (!isTutorial(difficulty)) return;
+  if (!isTutorial(difficulty)) {
+    paintPredictHint();
+    return;
+  }
   gamePageEl()?.classList.add("tutorial-mode");
-  if (!canPredict()) return;
+  if (!canPredict()) {
+    paintPredictHint();
+    return;
+  }
 
   const current = currentEntry();
   const next = timeline[stepIndex + 1];
-  if (!current || !next) return;
+  if (!current || !next) {
+    paintPredictHint();
+    return;
+  }
 
   const upcomingCall = upcomingTutorialCall();
   // Starting the program: pulse main() even when an empty advance comes first.
@@ -3297,16 +3541,19 @@ function applyTutorialGuidance(): void {
     upcomingCall.functionName === "main" &&
     current.stack.length <= 1
   ) {
-    predictHint.innerHTML =
-      `<strong class="tutorial-next-label">Next:</strong> Click <code>main()</code> to call it and start the program.`;
+    setBasePredictHintHtml(
+      `<strong class="tutorial-next-label">Next:</strong> Click <code>main()</code> to call it and start the program.`,
+    );
     highlightTutorialCall("main", { firstStep: true });
+    paintPredictHint();
     return;
   }
 
   // Empty advance-then-call: guide the call with explicit parameter values.
   if (upcomingCall) {
-    predictHint.innerHTML = formatTutorialCallHint(upcomingCall);
+    setBasePredictHintHtml(formatTutorialCallHint(upcomingCall));
     highlightTutorialCall(upcomingCall.functionName);
+    paintPredictHint();
     return;
   }
 
@@ -3318,9 +3565,8 @@ function applyTutorialGuidance(): void {
       (name) => !stagedChanges.some((row) => row.name === name),
     );
     if (needed.length > 0) {
-      predictHint.innerHTML = formatTutorialAssignHint(
-        expected.changes,
-        needed,
+      setBasePredictHintHtml(
+        formatTutorialAssignHint(expected.changes, needed),
       );
       for (const name of needed) {
         markTutorialTargets(
@@ -3329,19 +3575,24 @@ function applyTutorialGuidance(): void {
           ),
         );
       }
+      paintPredictHint();
       return;
     }
-    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Click line <code>${expected.line}</code> to advance.`;
+    setBasePredictHintHtml(
+      `<strong class="tutorial-next-label">Next:</strong> Click line <code>${expected.line}</code> to advance.`,
+    );
     const lineEl = codeViewContent.querySelector(
       `.code-line[data-line="${expected.line}"]`,
     );
     lineEl?.classList.add("tutorial-target-line");
+    paintPredictHint();
     return;
   }
 
   if (kind === "call" && expected.kind === "call") {
-    predictHint.innerHTML = formatTutorialCallHint(expected);
+    setBasePredictHintHtml(formatTutorialCallHint(expected));
     highlightTutorialCall(expected.functionName);
+    paintPredictHint();
     return;
   }
 
@@ -3350,12 +3601,15 @@ function applyTutorialGuidance(): void {
       expected.kind === "return"
         ? expected.returnValue
         : expectedReturnValueRepr();
-    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Return <code>${returnValue}</code>. Click <code>return</code> or the highlighted call site and enter that value.`;
+    setBasePredictHintHtml(
+      `<strong class="tutorial-next-label">Next:</strong> Return <code>${returnValue}</code>. Click <code>return</code> or the highlighted call site and enter that value.`,
+    );
     markTutorialTargets(
       codeViewContent.querySelectorAll(
         "[data-predict='return'], .return-ready, .predict-return",
       ),
     );
+    paintPredictHint();
     return;
   }
 
@@ -3363,17 +3617,21 @@ function applyTutorialGuidance(): void {
     const output =
       expected.kind === "output" ? expected.output : expectedOutputText();
     const shown = output === "" ? "(empty)" : output;
-    predictHint.innerHTML = `<strong class="tutorial-next-label">Next:</strong> Produce output <code>${shown}</code>. Click <code>print</code> or the Output box and enter that text.`;
+    setBasePredictHintHtml(
+      `<strong class="tutorial-next-label">Next:</strong> Produce output <code>${shown}</code>. Click <code>print</code> or the Output box and enter that text.`,
+    );
     markTutorialTargets(
       codeViewContent.querySelectorAll("[data-predict='output']"),
     );
     ioEl.classList.add("tutorial-target");
   }
+  paintPredictHint();
 }
 
 function renderPredictionPanel(): void {
   const finished = gameFinished();
   if (finished) {
+    clearStepHintFeedback();
     hidePopover();
     clearStagedChanges();
     clearTutorialTargets();
@@ -3386,19 +3644,24 @@ function renderPredictionPanel(): void {
 
   predictHint.hidden = false;
   if (timeline.length === 0) {
-    predictHint.innerHTML = isTutorial(difficulty)
-      ? "Tutorial mode highlights what to click next — assignments, calls, returns, and print."
-      : DEFAULT_PREDICT_HINT;
+    setBasePredictHintText(
+      isTutorial(difficulty)
+        ? "Tutorial mode highlights what to click next — assignments, calls, returns, and print."
+        : DEFAULT_PREDICT_HINT,
+    );
   } else if (isTutorial(difficulty)) {
-    // Hint text filled by applyTutorialGuidance.
-    predictHint.textContent = "";
+    // Base filled by applyTutorialGuidance; keep prior base until then.
   } else if (nextReturnCallSiteTableId()) {
-    predictHint.textContent =
-      "Return next: click the highlighted call site (↩) and enter the return value.";
+    setBasePredictHintText(
+      "Return next: click the highlighted call site (↩) and enter the return value.",
+    );
   } else {
-    predictHint.textContent =
-      "Click a variable, call, return, or print to predict the next step.";
+    setBasePredictHintText(
+      "Click a variable, call, return, or print to predict the next step.",
+    );
   }
+  // Tutorial path paints after guidance; non-tutorial paints now.
+  if (!isTutorial(difficulty)) paintPredictHint();
 }
 
 function renderAll(): void {
@@ -3422,8 +3685,10 @@ function showSetup(): void {
   clearTutorialTargets();
   exitTutorialDifficulty();
   clearWinState();
+  clearStepHintFeedback();
   predictHint.hidden = false;
-  predictHint.innerHTML = DEFAULT_PREDICT_HINT;
+  setBasePredictHintText(DEFAULT_PREDICT_HINT);
+  paintPredictHint();
   syncHeroProblem(selectedTemplate.title, selectedTemplate.description);
   syncTutorialChrome();
   renderProgress();
@@ -3767,6 +4032,7 @@ ioEl.addEventListener("keydown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && pending) {
+    if (popoverSubmitInFlight) return;
     event.preventDefault();
     hidePopover();
   }
@@ -3775,7 +4041,7 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener(
   "pointerdown",
   (event) => {
-    if (!pending || popover.hidden) return;
+    if (!pending || popover.hidden || popoverSubmitInFlight) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
     if (popover.contains(target)) return;

@@ -130,12 +130,12 @@ export function formatWrongAssignTarget(
 ): string {
   if (assistsLikeEasy(difficulty)) {
     const nextName = Object.keys(expectedChanges)[0];
-    if (nextName) return `The variable ${nextName} needs to be set next`;
+    if (nextName) return `The variable \`${nextName}\` needs to be set next`;
   }
   if (difficulty === "medium") {
     return "That is not the next variable to set";
   }
-  return `“${clickedName}” does not change on the next step`;
+  return `\`${clickedName}\` does not change on the next step`;
 }
 
 export function formatNoAssignNeeded(
@@ -298,14 +298,14 @@ export function progressiveAnswerHints(
 
   if (context.kind === "assign") {
     if (showIdentity && context.assignName) {
-      hints.push(`The variable ${context.assignName} is being set.`);
+      hints.push(`The variable \`${context.assignName}\` is being set.`);
     }
     if (showAnswer) {
       if (easy && context.assignValue != null && context.assignValue !== "") {
         hints.push(
           context.assignName
-            ? `Set ${context.assignName} to ${context.assignValue}.`
-            : `It is set to ${context.assignValue}.`,
+            ? `Set \`${context.assignName}\` to \`${context.assignValue}\`.`
+            : `It is set to \`${context.assignValue}\`.`,
         );
       } else if (!easy) {
         hints.push(
@@ -319,23 +319,25 @@ export function progressiveAnswerHints(
   if (context.kind === "call") {
     const names = Object.keys(context.callParams ?? {});
     const fn = context.functionName ?? "the function";
+    const fnCode = fn === "the function" ? fn : `\`${fn}\``;
     if (showIdentity) {
       if (names.length > 0) {
+        const paramList = names.map((name) => `\`${name}\``).join(", ");
         hints.push(
-          `Call ${fn}() with parameter${names.length === 1 ? "" : "s"} ${names.join(", ")}.`,
+          `Call ${fnCode}() with parameter${names.length === 1 ? "" : "s"} ${paramList}.`,
         );
       } else {
-        hints.push(`Call ${fn}() next (no parameters).`);
+        hints.push(`Call ${fnCode}() next (no parameters).`);
       }
     }
     if (showAnswer) {
       if (easy && names.length > 0 && context.callParams) {
         const parts = names.map(
-          (name) => `${name}=${context.callParams![name]}`,
+          (name) => `\`${name}=${context.callParams![name]}\``,
         );
         hints.push(`Use ${parts.join(", ")}.`);
       } else if (easy && names.length === 0) {
-        hints.push(`Call ${fn}() with no arguments.`);
+        hints.push(`Call ${fnCode}() with no arguments.`);
       } else if (!easy) {
         hints.push(
           "Look at the argument values in the call and the current values in the trace tables.",
@@ -351,7 +353,7 @@ export function progressiveAnswerHints(
     }
     if (showAnswer) {
       if (easy && context.returnValue != null) {
-        hints.push(`Return ${context.returnValue}.`);
+        hints.push(`Return \`${context.returnValue}\`.`);
       } else if (!easy) {
         hints.push(
           "Look at return values shown in the call stack for help.",
@@ -369,7 +371,11 @@ export function progressiveAnswerHints(
       if (easy && context.output != null) {
         const shown =
           context.output === "" ? "(empty output)" : context.output;
-        hints.push(`The output is: ${shown}`);
+        hints.push(
+          shown === "(empty output)"
+            ? "The output is: (empty output)"
+            : `The output is: \`${shown}\``,
+        );
       } else if (!easy) {
         hints.push(
           "Look at the current values in the trace table to decide what print writes.",
