@@ -2364,7 +2364,17 @@ function buildPopover(next: PendingPrediction): void {
   const title = document.createElement("span");
   title.className = "predict-popover-title";
   fillPopoverTitle(title, next);
-  titlebar.append(buildPopoverGrip(), title);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "predict-popover-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.title = "Close";
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", () => {
+    if (popoverSubmitInFlight) return;
+    hidePopover();
+  });
+  titlebar.append(buildPopoverGrip(), title, closeBtn);
 
   const fields = document.createElement("div");
   fields.className = "predict-popover-fields";
