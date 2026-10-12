@@ -629,15 +629,6 @@ body.game-won .difficulty-picker select {
   padding: 0.75rem 0.9rem;
 }
 
-.game-io.predict-ready {
-  cursor: pointer;
-}
-
-.game-io.predict-ready:hover,
-.game-io.predict-ready:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  outline-offset: 2px;
-}
 
 .game-io.fx-success-io {
   animation: fx-success-soft var(--fx-success-ms) ease;

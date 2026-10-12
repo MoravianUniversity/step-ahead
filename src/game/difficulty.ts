@@ -103,7 +103,7 @@ export function describeNextAction(kind: ActionKind): {
     case "output":
       return {
         short: "output",
-        howTo: "Click `print` or the Output box.",
+        howTo: "Click `print`.",
       };
   }
 }

@@ -118,7 +118,7 @@ app.innerHTML = `
           </div>
           <div class="game-section">
             <h2>Output</h2>
-            <div class="game-io predict-output" id="io" tabindex="0" role="button" aria-label="Predict produce output">
+            <div class="game-io" id="io">
               <pre id="stdout"></pre>
             </div>
           </div>
@@ -1547,7 +1547,7 @@ function renderCode(): void {
     fragment.appendChild(lineEl);
   });
   codeViewContent.replaceChildren(fragment);
-  ioEl.classList.toggle("predict-ready", interactive);
+
   if (returnCallSiteTableId) {
     requestAnimationFrame(() => {
       codeViewContent
@@ -3386,7 +3386,7 @@ function clearTutorialTargets(): void {
         "tutorial-target-first",
       );
     });
-  ioEl.classList.remove("tutorial-target", "tutorial-target-first");
+
   gamePageEl()?.classList.remove("tutorial-mode");
 }
 
@@ -3623,12 +3623,11 @@ function applyTutorialGuidance(): void {
       expected.kind === "output" ? expected.output : expectedOutputText();
     const shown = output === "" ? "(empty)" : output;
     setBasePredictHintHtml(
-      `<strong class="tutorial-next-label">Next:</strong> Produce output <code>${shown}</code>. Click <code>print</code> or the Output box and enter that text.`,
+      `<strong class="tutorial-next-label">Next:</strong> Produce output <code>${shown}</code>. Click <code>print</code> and enter that text.`,
     );
     markTutorialTargets(
       codeViewContent.querySelectorAll("[data-predict='output']"),
     );
-    ioEl.classList.add("tutorial-target");
   }
   paintPredictHint();
 }
@@ -4016,24 +4015,6 @@ codeViewContent.addEventListener("click", (event) => {
   void submitAdvanceToLine(line);
 });
 
-ioEl.addEventListener("click", (event) => {
-  if (!canPredict()) return;
-  event.preventDefault();
-  openPrediction({
-    kind: "output",
-    anchor: ioEl,
-  });
-});
-
-ioEl.addEventListener("keydown", (event) => {
-  if (!canPredict()) return;
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  openPrediction({
-    kind: "output",
-    anchor: ioEl,
-  });
-});
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && pending) {
