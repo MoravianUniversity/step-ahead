@@ -891,23 +891,48 @@ body.game-won .difficulty-picker select {
 }
 
 .predict-hint-pulse {
-  animation: predict-hint-pulse 0.65s ease;
+  animation: predict-hint-pulse calc(var(--fx-error-ms) * 1.6) ease;
+}
+
+.predict-hint-pulse.predict-hint-has-error {
+  animation-name: predict-hint-pulse-error;
 }
 
 @keyframes predict-hint-pulse {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
-  }
-  40% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent);
-  }
+  0%,
   100% {
+    transform: scale(1);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-solid));
     box-shadow: 0 0 0 0 transparent;
+  }
+  25% {
+    transform: scale(1.025);
+    background: color-mix(in srgb, var(--accent) 34%, var(--surface-solid));
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent),
+      0 0 18px 4px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+}
+
+@keyframes predict-hint-pulse-error {
+  0%,
+  100% {
+    transform: scale(1);
+    background: color-mix(in srgb, var(--danger) 8%, var(--surface-solid));
+    box-shadow: 0 0 0 0 transparent;
+  }
+  25% {
+    transform: scale(1.025);
+    background: color-mix(in srgb, var(--danger) 26%, var(--surface-solid));
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--danger) 65%, transparent),
+      0 0 18px 4px color-mix(in srgb, var(--danger) 40%, transparent);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .predict-hint-pulse {
+  .predict-hint-pulse,
+  .predict-hint-pulse.predict-hint-has-error {
     animation: none;
   }
 }

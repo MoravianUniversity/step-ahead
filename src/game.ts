@@ -914,17 +914,22 @@ function progressiveHintContextForPending(): ProgressiveHintContext | null {
 
   if (pending.kind === "assign") {
     if (classifyTransition(current, step) !== "advance") {
-      return { kind: "assign", assignName: pending.name };
+      return { kind: "assign" };
     }
     const expected = expectedPrediction(current, step, byId);
     if (expected.kind !== "advance") {
-      return { kind: "assign", assignName: pending.name };
+      return { kind: "assign" };
     }
-    const value = expected.changes[pending.name];
+    // Name the variable the step actually changes, not the one last clicked.
+    const names = Object.keys(expected.changes);
+    const target =
+      names.find((n) => !stagedChanges.some((row) => row.name === n)) ??
+      names[0];
+    if (target == null) return { kind: "assign" };
     return {
       kind: "assign",
-      assignName: pending.name,
-      assignValue: value,
+      assignName: target,
+      assignValue: expected.changes[target],
     };
   }
 
