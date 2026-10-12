@@ -196,6 +196,25 @@ popover.setAttribute("role", "dialog");
 popover.setAttribute("aria-label", "Prediction details");
 document.body.appendChild(popover);
 
+const finishDialog = document.createElement("div");
+finishDialog.className = "finish-overlay";
+finishDialog.hidden = true;
+finishDialog.innerHTML = `
+  <div class="finish-dialog" role="dialog" aria-modal="true" aria-labelledby="finish-title">
+    <h2 id="finish-title">Trace complete!</h2>
+    <p>What would you like to do next?</p>
+    <div class="finish-actions">
+      <button type="button" id="finish-new">Try a different trace</button>
+            <button type="button" id="finish-reroll" class="ghost">Try this trace with new values</button>
+      <button type="button" id="finish-same" class="ghost">Try the same trace again</button>
+      <button type="button" id="finish-review" class="ghost">Stay and review</button>
+    </div>
+  </div>
+`;
+document.body.appendChild(finishDialog);
+
+let currentTemplate: ProblemTemplate | null = null;
+
 type LiteralResult = { ok: boolean; canonical?: string; error?: string };
 
 type PendingPrediction =
@@ -352,6 +371,21 @@ function clearWinState(): void {
   boardEl.classList.remove("is-celebrating");
   boardEl.removeAttribute("aria-busy");
   boardEl.inert = false;
+  finishDialog.hidden = true;
+}
+
+function showFinishDialog(): void {
+  const randomizable =
+    currentTemplate != null &&
+    (currentTemplate.random.length > 0 || currentTemplate.setup != null);
+  finishDialog.querySelector<HTMLElement>("#finish-reroll")!.hidden = !randomizable;
+  finishDialog.hidden = false;
+  finishDialog.querySelector<HTMLButtonElement>("button")?.focus();
+}
+
+function reviewAfterFinish(): void {
+  finishDialog.hidden = true;
+  if (mistakes.length > 0) showMistakesPanel(true);
 }
 
 function fireWinConfetti(): void {
@@ -391,6 +425,7 @@ function celebrateWin(): void {
     boardEl.removeAttribute("aria-busy");
     boardEl.inert = false;
     celebrationTimer = null;
+    showFinishDialog();
   }, CELEBRATION_MS);
 }
 
@@ -3642,7 +3677,6 @@ function renderPredictionPanel(): void {
     predictHint.hidden = true;
     announce("Problem complete. You predicted every step.");
     celebrateWin();
-    if (mistakes.length > 0) showMistakesPanel(true);
     return;
   }
 
@@ -3725,6 +3759,27 @@ restartBtn.addEventListener("click", () => {
   startBtn.disabled = !ready || running;
 });
 
+finishDialog.querySelector("#finish-new")!.addEventListener("click", () => {
+  showSetup();
+  startBtn.disabled = !ready || running;
+});
+
+finishDialog.querySelector("#finish-reroll")!.addEventListener("click", () => {
+  if (!currentTemplate || running) return;
+  void startProblem(currentTemplate);
+});
+
+finishDialog.querySelector("#finish-same")!.addEventListener("click", () => {
+  if (!currentTemplate || running) return;
+  void startProblem(currentTemplate, problem.seed);
+});
+
+finishDialog.querySelector("#finish-review")!.addEventListener("click", reviewAfterFinish);
+
+finishDialog.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") reviewAfterFinish();
+});
+
 progressMistakesEl.addEventListener("click", (event) => {
   event.preventDefault();
   if (mistakes.length === 0) return;
@@ -3799,7 +3854,11 @@ tutorialLink.addEventListener("click", (event) => {
   void startProblem(tutorial);
 });
 
-async function startProblem(template: ProblemTemplate): Promise<void> {
+async function startProblem(
+  template: ProblemTemplate,
+  fixedSeed?: number,
+): Promise<void> {
+  currentTemplate = template;
   running = true;
   startBtn.disabled = true;
   clearWinState();
@@ -3815,7 +3874,7 @@ async function startProblem(template: ProblemTemplate): Promise<void> {
   renderAll();
 
   try {
-    const seed = newInstanceSeed();
+    const seed = fixedSeed ?? newInstanceSeed();
     const expanded = await expandProblemTemplate(
       template,
       seed,
