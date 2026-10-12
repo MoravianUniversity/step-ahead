@@ -2,12 +2,7 @@
 
 Interactive Python code-tracing practice. Predict each step — assignments, calls, returns, and print output — before the program advances.
 
-This repository (`auto-trace-table`) also includes **Auto Trace Table**, a step-through viewer for exploring execution as nested trace tables.
-
-| Page | Entry |
-| --- | --- |
-| Step Ahead (game) | [`index.html`](index.html) — `/` |
-| Auto Trace Table | [`trace.html`](trace.html) — `/trace.html` |
+Also includes **Auto Trace Table**, a step-through viewer for exploring execution as nested trace tables at `trace.html`.
 
 ## Quick start
 
@@ -26,6 +21,13 @@ npm run preview  # serve the production build locally
 ## Problems
 
 Game levels live in [`problems/*.problem`](problems/). Each file has metadata (`id`, `title`, `description`, optional `order` / `enable`) plus a `[code]` Python template. Optional `[random]` bindings can vary values between runs.
+
+## Future Ideas and Todos
+
+* Greatly improve the mistakes list to be actually reviewable and helpful
+* During review, allow the player to rewind and forward like in the trace table program
+* Add a server-side for tracking and logging
+* Make a problem editor and dynamically load them
 
 ## License
 
